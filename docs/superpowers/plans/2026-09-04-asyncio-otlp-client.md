@@ -16,7 +16,7 @@ These apply to every task. Violating any of them is grounds for rejecting a task
 
 - **Core runtime dependency is `aiohttp` alone.** Not `opentelemetry-api`, not `opentelemetry-proto`, not `protobuf`, not `orjson`.
 - **`protobuf` and `grpcio` are optional extras**, imported lazily inside factory functions — never at module import time in any module reachable from `import otlp_client`.
-- **`opentelemetry-proto` is a dev dependency only**, used by tests as an encoding oracle.
+- **`opentelemetry-proto` is never a core dependency.** It belongs in the `protobuf` and `grpc` optional extras (Task 14's encoder imports it at runtime) and in the `dev` group (the Task 15 encoder oracle). A core install must not pull it.
 - **Nothing imports `homeassistant`.** Ever. HA guidance lives in documentation only.
 - **Python floor is 3.12.** CI matrix: 3.12, 3.13, 3.14.
 - **Package name is `otlp_client`; distribution name is `asyncio-otlp-client`.**
