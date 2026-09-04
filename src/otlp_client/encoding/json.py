@@ -1,0 +1,188 @@
+"""OTLP/JSON encoding. The core encoder: pure Python, no dependencies."""
+
+from __future__ import annotations
+
+import json as _stdlib_json
+from collections.abc import Sequence
+from typing import Any
+
+from otlp_client.encoding.primitives import encode_attributes, omit_empty, u64
+from otlp_client.model.common import InstrumentationScope, Resource
+from otlp_client.model.metrics import (
+    Gauge,
+    Histogram,
+    HistogramDataPoint,
+    Metric,
+    NumberDataPoint,
+    ResourceMetrics,
+    ScopeMetrics,
+    Sum,
+)
+from otlp_client.outcomes import PartialSuccess
+from otlp_client.signals import SignalKind
+
+try:  # pragma: no cover - exercised by whichever path is installed
+    import orjson
+
+    def _dumps(doc: dict[str, Any]) -> bytes:
+        """Serialize with orjson when available.
+
+        orjson is never a declared dependency; Home Assistant already ships it,
+        so this is a free speedup there and a no-op everywhere else.
+        """
+        result: bytes = orjson.dumps(doc)
+        return result
+
+except ImportError:  # pragma: no cover
+
+    def _dumps(doc: dict[str, Any]) -> bytes:
+        return _stdlib_json.dumps(doc, separators=(",", ":")).encode("utf-8")
+
+
+def _encode_resource(resource: Resource) -> dict[str, Any]:
+    return omit_empty(
+        {
+            "attributes": encode_attributes(resource.attributes),
+            "droppedAttributesCount": resource.dropped_attributes_count or None,
+        }
+    )
+
+
+def _encode_scope(scope: InstrumentationScope) -> dict[str, Any]:
+    return omit_empty(
+        {
+            "name": scope.name,
+            "version": scope.version,
+            "attributes": encode_attributes(scope.attributes),
+        }
+    )
+
+
+def _encode_number_point(point: NumberDataPoint) -> dict[str, Any]:
+    # bool before int: bool subclasses int, and a bool is not a valid metric value.
+    if isinstance(point.value, bool):
+        raise TypeError("metric data point values must be int or float, not bool")
+    value_field = (
+        {"asInt": u64(point.value)}
+        if isinstance(point.value, int)
+        else {"asDouble": point.value}
+    )
+    return omit_empty(
+        {
+            "attributes": encode_attributes(point.attributes),
+            "startTimeUnixNano": u64(point.start_time_unix_nano)
+            if point.start_time_unix_nano is not None
+            else None,
+            "timeUnixNano": u64(point.time_unix_nano),
+            **value_field,
+        }
+    )
+
+
+def _encode_histogram_point(point: HistogramDataPoint) -> dict[str, Any]:
+    return omit_empty(
+        {
+            "attributes": encode_attributes(point.attributes),
+            "startTimeUnixNano": u64(point.start_time_unix_nano)
+            if point.start_time_unix_nano is not None
+            else None,
+            "timeUnixNano": u64(point.time_unix_nano),
+            "count": u64(point.count),
+            "sum": point.sum,
+            "bucketCounts": [u64(c) for c in point.bucket_counts],
+            "explicitBounds": list(point.explicit_bounds),
+        }
+    )
+
+
+def _encode_metric(metric: Metric) -> dict[str, Any]:
+    data = metric.data
+    if isinstance(data, Gauge):
+        body: dict[str, Any] = {
+            "gauge": {"dataPoints": [_encode_number_point(p) for p in data.data_points]}
+        }
+    elif isinstance(data, Sum):
+        body = {
+            "sum": {
+                "dataPoints": [_encode_number_point(p) for p in data.data_points],
+                "aggregationTemporality": int(data.aggregation_temporality),
+                "isMonotonic": data.is_monotonic,
+            }
+        }
+    elif isinstance(data, Histogram):
+        body = {
+            "histogram": {
+                "dataPoints": [_encode_histogram_point(p) for p in data.data_points],
+                "aggregationTemporality": int(data.aggregation_temporality),
+            }
+        }
+    else:  # pragma: no cover - exhaustive over MetricData
+        raise TypeError(f"unsupported metric data type: {type(data)!r}")
+
+    return omit_empty(
+        {"name": metric.name, "description": metric.description, "unit": metric.unit, **body}
+    )
+
+
+def _encode_scope_metrics(scope_metrics: ScopeMetrics) -> dict[str, Any]:
+    return omit_empty(
+        {
+            "scope": _encode_scope(scope_metrics.scope),
+            "metrics": [_encode_metric(m) for m in scope_metrics.metrics],
+        }
+    )
+
+
+def _encode_resource_metrics(data: Sequence[ResourceMetrics]) -> dict[str, Any]:
+    return {
+        "resourceMetrics": [
+            omit_empty(
+                {
+                    "resource": _encode_resource(rm.resource),
+                    "scopeMetrics": [_encode_scope_metrics(sm) for sm in rm.scope_metrics],
+                }
+            )
+            for rm in data
+        ]
+    }
+
+
+class JSONEncoder:
+    """Encodes the model tree as OTLP/JSON."""
+
+    @property
+    def content_type(self) -> str:
+        return "application/json"
+
+    def encode(self, kind: SignalKind, data: Sequence[Any]) -> bytes:
+        if kind is SignalKind.METRICS:
+            return _dumps(_encode_resource_metrics(data))
+        if kind is SignalKind.PROFILES:
+            raise NotImplementedError(
+                "the profiles signal is still in development and is not encoded yet"
+            )
+        raise NotImplementedError(f"no encoder registered for {kind}")
+
+    def decode_response(self, kind: SignalKind, body: bytes) -> PartialSuccess | None:
+        """Read a partialSuccess block if the collector reported one."""
+        if not body:
+            return None
+        try:
+            doc = _stdlib_json.loads(body)
+        except ValueError:
+            return None
+        if not isinstance(doc, dict):
+            return None
+        partial = doc.get("partialSuccess")
+        if not isinstance(partial, dict) or not partial:
+            return None
+        rejected_key = {
+            SignalKind.METRICS: "rejectedDataPoints",
+            SignalKind.LOGS: "rejectedLogRecords",
+            SignalKind.TRACES: "rejectedSpans",
+            SignalKind.PROFILES: "rejectedProfiles",
+        }[kind]
+        return PartialSuccess(
+            rejected=int(partial.get(rejected_key, 0)),
+            message=str(partial.get("errorMessage", "")),
+        )

@@ -32,5 +32,13 @@ addopts = "-m 'not integration'"
 strict = true
 files = ["src", "tests"]
 
+[[tool.mypy.overrides]]
+# orjson is an opportunistic, non-declared dependency (see encoding/json.py).
+# It is normally absent, so mypy can't find it; ignore_missing_imports here
+# (rather than an inline `type: ignore`) keeps mypy clean whether or not the
+# checking environment happens to have it installed.
+module = "orjson"
+ignore_missing_imports = true
+
 [tool.ruff]
 line-length = 100
