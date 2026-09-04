@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
+from urllib.parse import unquote
 
 from otlp_client.errors import OTLPConfigError
 from otlp_client.model.common import Resource
@@ -59,6 +61,47 @@ class OTLPConfig:
         if self.max_elapsed <= 0:
             raise OTLPConfigError("max_elapsed must be greater than zero")
 
+    @classmethod
+    def from_env(cls, env: Mapping[str, str] | None = None) -> OTLPConfig:
+        """Build a config from the standard OTEL_EXPORTER_OTLP_* variables.
+
+        Never called implicitly. Callers opt in so that ambient environment
+        cannot silently change client behaviour.
+        """
+        src = os.environ if env is None else env
+
+        raw_protocol = src.get("OTEL_EXPORTER_OTLP_PROTOCOL", OTLPProtocol.HTTP_JSON.value)
+        try:
+            protocol = OTLPProtocol(raw_protocol)
+        except ValueError as exc:
+            raise OTLPConfigError(f"unknown protocol {raw_protocol!r}") from exc
+
+        raw_compression = src.get("OTEL_EXPORTER_OTLP_COMPRESSION", Compression.NONE.value)
+        try:
+            compression = Compression(raw_compression)
+        except ValueError as exc:
+            raise OTLPConfigError(f"unknown compression {raw_compression!r}") from exc
+
+        timeout_ms = src.get("OTEL_EXPORTER_OTLP_TIMEOUT")
+        try:
+            timeout = float(timeout_ms) / 1000.0 if timeout_ms else 10.0
+        except ValueError as exc:
+            raise OTLPConfigError(f"invalid timeout {timeout_ms!r}") from exc
+
+        return cls(
+            endpoint=src.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318"),
+            protocol=protocol,
+            headers=_parse_headers(src.get("OTEL_EXPORTER_OTLP_HEADERS", "")),
+            timeout=timeout,
+            compression=compression,
+            metrics_endpoint=src.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"),
+            logs_endpoint=src.get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"),
+            traces_endpoint=src.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),
+            certificate_file=src.get("OTEL_EXPORTER_OTLP_CERTIFICATE"),
+            client_certificate_file=src.get("OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE"),
+            client_key_file=src.get("OTEL_EXPORTER_OTLP_CLIENT_KEY"),
+        )
+
     def endpoint_for(self, kind: SignalKind) -> str:
         """Resolve the URL for a signal.
 
@@ -74,3 +117,16 @@ class OTLPConfig:
         if override:
             return override
         return self.endpoint.rstrip("/") + http_path(kind)
+
+
+def _parse_headers(raw: str) -> Mapping[str, str]:
+    """Parse the OTEL_EXPORTER_OTLP_HEADERS `k=v,k=v` form."""
+    headers: dict[str, str] = {}
+    for pair in raw.split(","):
+        if not pair.strip():
+            continue
+        key, sep, value = pair.partition("=")
+        if not sep:
+            raise OTLPConfigError(f"malformed header entry {pair!r}, expected key=value")
+        headers[unquote(key.strip())] = unquote(value.strip())
+    return MappingProxyType(headers)
