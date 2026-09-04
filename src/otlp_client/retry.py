@@ -67,7 +67,12 @@ async def with_retry(
     """Run `op` until it succeeds, fails permanently, or the budget runs out.
 
     Uses full jitter: each delay is `jitter() * capped_backoff`. Cancellation
-    during a backoff sleep propagates rather than being swallowed.
+    during a backoff sleep propagates rather than being swallowed. If the next
+    delay (computed or a server-supplied `retry_after`) would outlast the
+    remaining budget, the attempt is skipped and the `Retryable` is returned
+    immediately rather than sleeping a truncated interval and retrying anyway
+    — that would both retry earlier than a rate-limiter asked for and spend
+    the budget on a request whose outcome is discarded regardless.
     """
     started = monotonic()
     attempt = 0
@@ -83,5 +88,7 @@ async def with_retry(
         capped = min(policy.max_backoff, policy.initial_backoff * policy.multiplier**attempt)
         delay = outcome.retry_after if outcome.retry_after is not None else jitter() * capped
         remaining = policy.max_elapsed - elapsed
-        await sleep(min(delay, remaining))
+        if delay > remaining:
+            return outcome
+        await sleep(delay)
         attempt += 1

@@ -71,6 +71,21 @@ async def test_retry_after_overrides_computed_backoff() -> None:
     assert clock.slept == [7.0]
 
 
+async def test_retry_after_exceeding_budget_returns_immediately_without_sleeping() -> None:
+    # A retry_after longer than the remaining budget must not be truncated and
+    # retried anyway: that would send earlier than the server permitted, on a
+    # request whose result is discarded the moment it returns (the budget is
+    # already spent). The Retryable is returned as-is instead.
+    clock = FakeClock()
+    op, calls = scripted(Retryable(status=429, retry_after=120.0), Success())
+    result = await with_retry(op, POLICY, sleep=clock.sleep, monotonic=clock.monotonic,
+                              jitter=lambda: 1.0)
+    assert isinstance(result, Retryable)
+    assert result.retry_after == 120.0
+    assert len(calls) == 1
+    assert clock.slept == []
+
+
 async def test_permanent_is_returned_immediately() -> None:
     clock = FakeClock()
     op, calls = scripted(Permanent(status=400, message="bad"))
