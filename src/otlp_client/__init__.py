@@ -23,11 +23,13 @@ from otlp_client.model.metrics import (
     sum_,
 )
 from otlp_client.outcomes import ExportOutcome, PartialSuccess, Permanent, Retryable, Success
+from otlp_client.processor import BatchProcessor, ProcessorStats
 from otlp_client.signals import SignalKind
 
 __all__ = [
     "AggregationTemporality",
     "AnyValue",
+    "BatchProcessor",
     "Compression",
     "ExportOutcome",
     "Gauge",
@@ -45,6 +47,7 @@ __all__ = [
     "OTLPTransportError",
     "PartialSuccess",
     "Permanent",
+    "ProcessorStats",
     "Resource",
     "ResourceMetrics",
     "Retryable",
