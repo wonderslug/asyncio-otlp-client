@@ -30,10 +30,20 @@ def _build_encoder(config: OTLPConfig) -> Encoder:
         from otlp_client.encoding.json import JSONEncoder
 
         return JSONEncoder()
+
     from otlp_client.encoding.protobuf import build_protobuf_encoder
 
-    encoder: Encoder = build_protobuf_encoder()  # type: ignore[assignment]
-    return encoder
+    try:
+        return build_protobuf_encoder()
+    except OTLPConfigError:
+        if config.protocol is OTLPProtocol.GRPC:
+            # OTLP over gRPC is always protobuf-framed, so a gRPC user reaches the
+            # protobuf branch first. Name the extra they actually need.
+            raise OTLPConfigError(
+                "the gRPC transport needs the optional extra: "
+                "pip install 'asyncio-otlp-client[grpc]'"
+            ) from None
+        raise
 
 
 class OTLPClient:

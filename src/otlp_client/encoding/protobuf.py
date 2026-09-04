@@ -7,6 +7,7 @@ for a core-only install.
 
 from __future__ import annotations
 
+from otlp_client.encoding.base import Encoder
 from otlp_client.errors import OTLPConfigError
 
 _MISSING = (
@@ -15,6 +16,6 @@ _MISSING = (
 )
 
 
-def build_protobuf_encoder() -> object:
+def build_protobuf_encoder() -> Encoder:
     """Not yet implemented; raises with the install hint."""
     raise OTLPConfigError(_MISSING)

@@ -3,10 +3,10 @@ from typing import Any
 
 import pytest
 
-from otlp_client.client import OTLPClient
-from otlp_client.config import OTLPConfig
+from otlp_client.client import OTLPClient, _build_encoder
+from otlp_client.config import OTLPConfig, OTLPProtocol
 from otlp_client.encoding.json import JSONEncoder
-from otlp_client.errors import OTLPPermanentError, OTLPTransportError
+from otlp_client.errors import OTLPConfigError, OTLPPermanentError, OTLPTransportError
 from otlp_client.model.common import InstrumentationScope, Resource
 from otlp_client.model.metrics import ResourceMetrics, ScopeMetrics, gauge
 from otlp_client.outcomes import PartialSuccess, Permanent, Retryable, Success
@@ -117,3 +117,15 @@ async def test_context_manager_closes_the_transport() -> None:
     async with make_client(transport):
         pass
     assert transport.closed is True
+
+
+def test_http_protobuf_without_extra_names_the_protobuf_extra() -> None:
+    config = OTLPConfig(endpoint="http://localhost:4318", protocol=OTLPProtocol.HTTP_PROTOBUF)
+    with pytest.raises(OTLPConfigError, match=r"pip install 'asyncio-otlp-client\[protobuf\]'"):
+        _build_encoder(config)
+
+
+def test_grpc_without_extra_names_the_grpc_extra() -> None:
+    config = OTLPConfig(endpoint="http://localhost:4318", protocol=OTLPProtocol.GRPC)
+    with pytest.raises(OTLPConfigError, match=r"pip install 'asyncio-otlp-client\[grpc\]'"):
+        _build_encoder(config)
