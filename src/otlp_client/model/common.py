@@ -17,7 +17,7 @@ _EMPTY: Mapping[str, AnyValue] = MappingProxyType({})
 class Resource:
     """The entity producing telemetry."""
 
-    attributes: Mapping[str, AnyValue] = field(default=_EMPTY)
+    attributes: Mapping[str, AnyValue] = field(default=_EMPTY, hash=False)
     dropped_attributes_count: int = 0
 
 
@@ -27,4 +27,4 @@ class InstrumentationScope:
 
     name: str
     version: str | None = None
-    attributes: Mapping[str, AnyValue] = field(default=_EMPTY)
+    attributes: Mapping[str, AnyValue] = field(default=_EMPTY, hash=False)

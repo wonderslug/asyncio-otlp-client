@@ -22,3 +22,10 @@ def test_scope_defaults() -> None:
     assert s.name == "otlp_client"
     assert s.version is None
     assert s.attributes == {}
+
+
+def test_resource_and_scope_are_hashable() -> None:
+    hash(Resource())
+    hash(InstrumentationScope(name="x"))
+    assert hash(Resource()) == hash(Resource())
+    assert hash(InstrumentationScope(name="x")) == hash(InstrumentationScope(name="x"))
