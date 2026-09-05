@@ -62,3 +62,6 @@ rules:
     level: error
   truthy:
     level: error
+    # GitHub Actions uses `on:` as a mapping key; without this yamllint
+    # reads it as the boolean `on` and rejects every workflow file.
+    check-keys: false

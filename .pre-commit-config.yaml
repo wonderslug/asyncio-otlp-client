@@ -1,7 +1,4 @@
 ---
-# .github/ is excluded wholesale (see `exclude:` at the bottom): GitHub workflow
-# files use `on:` as a key, which yamllint's truthy rule rejects, and they are
-# already validated by Actions itself.
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -51,4 +48,3 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
-exclude: '^.github/.*'
