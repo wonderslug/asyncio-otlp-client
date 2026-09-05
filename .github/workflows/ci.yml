@@ -45,10 +45,16 @@ jobs:
           uv pip install . pytest pytest-asyncio
       - name: Verify no optional extra is installed
         run: |
-          ! uv pip show grpcio 2>/dev/null
-          ! uv pip show protobuf 2>/dev/null
-          ! uv pip show opentelemetry-proto 2>/dev/null
-          ! uv pip show orjson 2>/dev/null
+          leaked=""
+          for pkg in grpcio protobuf opentelemetry-proto orjson; do
+            if uv pip show "$pkg" >/dev/null 2>&1; then
+              leaked="$leaked $pkg"
+            fi
+          done
+          if [ -n "$leaked" ]; then
+            echo "optional extras leaked into the core install:$leaked"
+            exit 1
+          fi
       - name: Run the core-only suite
         run: |
           .venv/bin/pytest tests/test_core_only.py tests/test_encoding_json_metrics.py \

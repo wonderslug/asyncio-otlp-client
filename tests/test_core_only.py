@@ -5,7 +5,12 @@ import sys
 
 FORBIDDEN = ("grpc", "google.protobuf", "opentelemetry")
 
-SCRIPT = """
+# FORBIDDEN is spliced in as its own line (rather than making the whole
+# script an f-string) so the dict/set literals below keep their braces
+# unescaped.
+SCRIPT = (
+    f"FORBIDDEN = {FORBIDDEN!r}\n"
+    + """
 import sys
 import otlp_client
 from otlp_client import OTLPClient, OTLPConfig, gauge  # noqa: F401
@@ -21,10 +26,18 @@ payload = JSONEncoder().encode(
             metrics=[gauge("m", 1.0, time_unix_nano=1)])])],
 )
 assert b'"resourceMetrics"' in payload
-leaked = sorted(m for m in sys.modules if m.split(".")[0] in {"grpc", "opentelemetry"})
+# Match on module path prefix, not just the top-level segment, so a bare
+# "google.protobuf" import (not routed through "opentelemetry.proto") is
+# caught too -- a top-level-only check would miss it, since "google" alone
+# is not forbidden.
+leaked = sorted(
+    m for m in sys.modules
+    if any(m == prefix or m.startswith(prefix + ".") for prefix in FORBIDDEN)
+)
 assert not leaked, f"optional extras leaked into the core import path: {leaked}"
 print("core-only OK")
 """
+)
 
 
 def test_core_import_path_does_not_touch_optional_extras() -> None:
