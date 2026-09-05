@@ -14,7 +14,7 @@ from otlp_client.encoding.protobuf import build_protobuf_encoder
 from otlp_client.errors import OTLPConfigError
 from otlp_client.outcomes import Permanent, Retryable, Success
 from otlp_client.signals import SignalKind
-from otlp_client.transport.grpc import GRPCTransport
+from otlp_client.transport.grpc import GRPCTransport, _target
 
 METRICS_METHOD = "/opentelemetry.proto.collector.metrics.v1.MetricsService/Export"
 
@@ -215,3 +215,23 @@ async def test_traces_endpoint_override_is_rejected_over_grpc() -> None:
     )
     with pytest.raises(OTLPConfigError, match="per-signal endpoint"):
         await GRPCTransport.create(config, build_protobuf_encoder())
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "insecure", "expected_plaintext"),
+    [
+        # An explicit scheme wins over the insecure setting, both ways.
+        ("https://collector.local:4317", True, False),
+        ("http://collector.local:4317", False, True),
+        # Scheme-less endpoints fall back to the insecure setting, which
+        # defaults to false: TLS, not plaintext.
+        ("collector.local:4317", False, False),
+        ("collector.local:4317", True, True),
+    ],
+)
+def test_transport_security_follows_scheme_then_insecure(
+    endpoint: str, insecure: bool, expected_plaintext: bool
+) -> None:
+    host, plaintext = _target(endpoint, insecure)
+    assert host == "collector.local:4317"
+    assert plaintext is expected_plaintext

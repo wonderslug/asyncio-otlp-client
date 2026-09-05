@@ -28,7 +28,7 @@ anywhere in the spec.
 | Certificate file | `OTEL_EXPORTER_OTLP_CERTIFICATE` | Supported |
 | Client key file | `OTEL_EXPORTER_OTLP_CLIENT_KEY` | Supported |
 | Client certificate file | `OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE` | Supported |
-| Insecure | `OTEL_EXPORTER_OTLP_INSECURE` | **Missing** |
+| Insecure | `OTEL_EXPORTER_OTLP_INSECURE` | Supported (fixed 2026-09-05) |
 | Per-signal variants of all five | `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_*` | **Missing** |
 
 Headers reach both wire formats correctly: HTTP merges them into the request
@@ -41,7 +41,7 @@ Header parsing (`config.py:_parse_headers`) matches the spec's W3C Baggage
 
 ## Findings, ranked
 
-### 1. Scheme-less gRPC endpoints silently fall back to plaintext
+### 1. Scheme-less gRPC endpoints silently fall back to plaintext — FIXED 2026-09-05
 
 `_target()` in `transport/grpc.py` infers transport security as
 `parsed.scheme != "https"`. Verified behaviour:
@@ -64,7 +64,13 @@ plaintext. Our handling of explicit `http://` and `https://` schemes is
 correct and does take precedence, as the spec requires; only the scheme-less
 case is wrong.
 
-No test covers a scheme-less endpoint. `tests/test_transport_grpc.py` only
+**Resolved 2026-09-05.** `_target()` now takes the `insecure` setting: an
+explicit `http`/`https` scheme decides transport security and takes precedence,
+and only a scheme-less endpoint consults `insecure`, which defaults to false.
+`OTEL_EXPORTER_OTLP_INSECURE` is parsed per the spec Boolean rules. The
+paragraphs below describe the original defect.
+
+No test covered a scheme-less endpoint. `tests/test_transport_grpc.py` only
 exercises `insecure_skip_verify`, which is a different knob (skip *verification*
 on an already-TLS channel) and should not be confused with spec `Insecure`
 (use no TLS at all). We have the second-order knob and are missing the

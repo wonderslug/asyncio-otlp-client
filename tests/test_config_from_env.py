@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 
 from otlp_client.config import Compression, OTLPConfig, OTLPProtocol
@@ -103,3 +105,30 @@ def test_explicitly_empty_endpoint_is_rejected_rather_than_defaulted() -> None:
         OTLPConfig.from_env(
             {"OTEL_EXPORTER_OTLP_PROTOCOL": "grpc", "OTEL_EXPORTER_OTLP_ENDPOINT": ""}
         )
+
+
+def test_insecure_defaults_to_false() -> None:
+    assert OTLPConfig.from_env({}).insecure is False
+    assert OTLPConfig(endpoint="http://localhost:4317").insecure is False
+
+
+@pytest.mark.parametrize("raw", ["true", "TRUE", "True"])
+def test_insecure_is_true_only_for_case_insensitive_true(raw: str) -> None:
+    assert OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_INSECURE": raw}).insecure is True
+
+
+@pytest.mark.parametrize("raw", ["false", "FALSE", ""])
+def test_insecure_is_false_for_false_and_empty(raw: str) -> None:
+    assert OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_INSECURE": raw}).insecure is False
+
+
+@pytest.mark.parametrize("raw", ["1", "yes", "on", "banana"])
+def test_insecure_rejects_values_the_spec_forbids_extending_to(
+    raw: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The spec forbids implementations adding their own true values, and
+    # requires falling back to false with a warning rather than raising.
+    with caplog.at_level(logging.WARNING):
+        cfg = OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_INSECURE": raw})
+    assert cfg.insecure is False
+    assert "OTEL_EXPORTER_OTLP_INSECURE" in caplog.text

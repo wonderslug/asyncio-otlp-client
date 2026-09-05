@@ -28,11 +28,20 @@ _METHODS: dict[SignalKind, str] = {
 }
 
 
-def _target(endpoint: str) -> tuple[str, bool]:
-    """Split an endpoint into a gRPC target and whether it is plaintext."""
+def _target(endpoint: str, insecure: bool) -> tuple[str, bool]:
+    """Split an endpoint into a gRPC target and whether it is plaintext.
+
+    An explicit http/https scheme decides transport security and takes
+    precedence over `insecure`. Only a scheme-less endpoint consults
+    `insecure`, which defaults to false, so `collector.local:4317` is TLS.
+    """
     parsed = urlparse(endpoint if "//" in endpoint else f"//{endpoint}")
     host = parsed.netloc or parsed.path
-    return host, parsed.scheme != "https"
+    if parsed.scheme == "https":
+        return host, False
+    if parsed.scheme == "http":
+        return host, True
+    return host, insecure
 
 
 def _read_credentials(config: OTLPConfig) -> Any:
@@ -70,7 +79,7 @@ class GRPCTransport:
         except ImportError as exc:
             raise OTLPConfigError(_MISSING) from exc
 
-        target, plaintext = _target(config.endpoint)
+        target, plaintext = _target(config.endpoint, config.insecure)
         if not plaintext and config.insecure_skip_verify:
             raise OTLPConfigError(
                 "insecure_skip_verify is not supported over gRPC: grpcio provides no way "
