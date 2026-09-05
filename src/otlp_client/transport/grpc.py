@@ -125,13 +125,18 @@ class GRPCTransport:
             request_serializer=lambda value: value,
             response_deserializer=lambda value: value,
         )
-        metadata = tuple(self._config.headers.items())
+        metadata = tuple(self._config.headers_for(kind).items())
         compression = (
-            grpc.Compression.Gzip if self._config.compression is Compression.GZIP else None
+            grpc.Compression.Gzip
+            if self._config.compression_for(kind) is Compression.GZIP
+            else None
         )
         try:
             raw = await call(
-                payload, timeout=self._config.timeout, metadata=metadata, compression=compression
+                payload,
+                timeout=self._config.timeout_for(kind),
+                metadata=metadata,
+                compression=compression,
             )
         except AioRpcError as exc:
             return self._classify(exc)
