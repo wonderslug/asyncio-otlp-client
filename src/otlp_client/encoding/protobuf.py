@@ -14,6 +14,7 @@ from otlp_client.model.common import AnyValue, InstrumentationScope, Resource
 from otlp_client.model.logs import LogRecord, ResourceLogs
 from otlp_client.model.metrics import (
     Buckets,
+    Exemplar,
     ExponentialHistogram,
     Gauge,
     Histogram,
@@ -187,6 +188,22 @@ def _buckets(buckets: Buckets) -> Any:
     )
 
 
+def _exemplar(exemplar: Exemplar) -> Any:
+    from opentelemetry.proto.metrics.v1 import metrics_pb2
+
+    if isinstance(exemplar.value, bool):
+        raise TypeError("exemplar values must be int or float, not bool")
+    common: dict[str, Any] = {
+        "filtered_attributes": _key_values(exemplar.filtered_attributes),
+        "time_unix_nano": exemplar.time_unix_nano,
+        "span_id": exemplar.span_id or b"",
+        "trace_id": exemplar.trace_id or b"",
+    }
+    if isinstance(exemplar.value, int):
+        return metrics_pb2.Exemplar(as_int=exemplar.value, **common)
+    return metrics_pb2.Exemplar(as_double=exemplar.value, **common)
+
+
 def _number_point(point: Any) -> Any:
     from opentelemetry.proto.metrics.v1 import metrics_pb2
 
@@ -195,6 +212,7 @@ def _number_point(point: Any) -> Any:
         "time_unix_nano": point.time_unix_nano,
         "start_time_unix_nano": point.start_time_unix_nano or 0,
         "flags": point.flags,
+        "exemplars": [_exemplar(e) for e in point.exemplars],
     }
     if isinstance(point.value, bool):
         raise TypeError("metric data point values must be int or float, not bool")
@@ -237,6 +255,7 @@ def _metric(metric: Metric) -> Any:
                     flags=p.flags,
                     min=p.min,
                     max=p.max,
+                    exemplars=[_exemplar(e) for e in p.exemplars],
                 )
                 for p in data.data_points
             ],
@@ -255,6 +274,7 @@ def _metric(metric: Metric) -> Any:
                 "min": p.min,
                 "max": p.max,
                 "flags": p.flags,
+                "exemplars": [_exemplar(e) for e in p.exemplars],
             }
             # positive/negative are message-typed fields with explicit
             # presence: only set them when they carry information, matching

@@ -9,6 +9,7 @@ from otlp_client.model.logs import LogRecord, ResourceLogs, ScopeLogs, SeverityN
 from otlp_client.model.metrics import (
     AggregationTemporality,
     Buckets,
+    Exemplar,
     ExponentialHistogram,
     ExponentialHistogramDataPoint,
     Gauge,
@@ -61,6 +62,15 @@ attributes = st.dictionaries(text, any_values, max_size=4)
 small_uint = st.integers(min_value=0, max_value=255)
 flags = st.integers(min_value=0, max_value=1023)
 
+exemplars = st.builds(
+    Exemplar,
+    time_unix_nano=u64,
+    value=st.one_of(i64, finite),
+    filtered_attributes=attributes,
+    span_id=st.one_of(st.none(), st.binary(min_size=8, max_size=8)),
+    trace_id=st.one_of(st.none(), st.binary(min_size=16, max_size=16)),
+)
+
 resources = st.builds(Resource, attributes=attributes, dropped_attributes_count=small_uint)
 scopes = st.builds(
     InstrumentationScope, name=text, version=st.one_of(st.none(), text), attributes=attributes
@@ -73,6 +83,7 @@ number_points = st.builds(
     attributes=attributes,
     start_time_unix_nano=st.one_of(st.none(), u64),
     flags=flags,
+    exemplars=st.lists(exemplars, max_size=2),
 )
 
 histogram_points = st.builds(
@@ -86,6 +97,7 @@ histogram_points = st.builds(
     flags=flags,
     min=st.one_of(st.none(), finite),
     max=st.one_of(st.none(), finite),
+    exemplars=st.lists(exemplars, max_size=2),
 )
 
 exponential_points = st.builds(
@@ -109,6 +121,7 @@ exponential_points = st.builds(
     max=st.one_of(st.none(), finite),
     attributes=attributes,
     flags=flags,
+    exemplars=st.lists(exemplars, max_size=2),
 )
 
 summary_points = st.builds(

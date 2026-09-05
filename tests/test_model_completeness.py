@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
-from typing import Any
+from collections.abc import Sequence
+from typing import Any, cast
 
 import pytest
 
@@ -196,3 +197,82 @@ def test_histogram_min_max_omitted_when_none() -> None:
     encoded = doc["histogram"]["dataPoints"][0]
     assert "min" not in encoded
     assert "max" not in encoded
+
+
+def _encode_number_metric_with(exemplars: Sequence[Any]) -> dict[str, Any]:
+    import json as _json
+
+    from otlp_client.encoding.json import JSONEncoder
+    from otlp_client.model.common import InstrumentationScope, Resource
+    from otlp_client.model.metrics import (
+        Gauge,
+        Metric,
+        NumberDataPoint,
+        ResourceMetrics,
+        ScopeMetrics,
+    )
+    from otlp_client.signals import SignalKind
+
+    point = NumberDataPoint(time_unix_nano=1, value=1.5, exemplars=exemplars)
+    payload = JSONEncoder().encode(
+        SignalKind.METRICS,
+        [
+            ResourceMetrics(
+                resource=Resource(attributes={"a": "b"}),
+                scope_metrics=[
+                    ScopeMetrics(
+                        scope=InstrumentationScope(name="t"),
+                        metrics=[Metric(name="g", data=Gauge(data_points=[point]))],
+                    )
+                ],
+            )
+        ],
+    )
+    doc = _json.loads(payload)["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]
+    return cast("dict[str, Any]", doc["gauge"]["dataPoints"][0])
+
+
+def test_exemplar_ids_are_hex_not_base64() -> None:
+    from otlp_client.model.metrics import Exemplar
+
+    trace_id = bytes.fromhex("0102030405060708090a0b0c0d0e0f10")
+    span_id = bytes.fromhex("1112131415161718")
+    point = _encode_number_metric_with(
+        [Exemplar(time_unix_nano=7, value=2.5, trace_id=trace_id, span_id=span_id)]
+    )
+    (ex,) = point["exemplars"]
+    assert ex["traceId"] == "0102030405060708090a0b0c0d0e0f10"
+    assert ex["spanId"] == "1112131415161718"
+    assert ex["timeUnixNano"] == "7"
+    assert ex["asDouble"] == 2.5
+
+
+def test_exemplar_int_value_uses_asInt_as_a_string() -> None:
+    from otlp_client.model.metrics import Exemplar
+
+    point = _encode_number_metric_with([Exemplar(time_unix_nano=1, value=42)])
+    (ex,) = point["exemplars"]
+    assert ex["asInt"] == "42"
+    assert "asDouble" not in ex
+
+
+def test_exemplar_rejects_a_bool_value() -> None:
+    from otlp_client.model.metrics import Exemplar
+
+    with pytest.raises(TypeError):
+        _encode_number_metric_with([Exemplar(time_unix_nano=1, value=True)])
+
+
+def test_exemplar_omits_absent_ids_and_attributes() -> None:
+    from otlp_client.model.metrics import Exemplar
+
+    point = _encode_number_metric_with([Exemplar(time_unix_nano=1, value=1.0)])
+    (ex,) = point["exemplars"]
+    assert "traceId" not in ex
+    assert "spanId" not in ex
+    assert "filteredAttributes" not in ex
+
+
+def test_exemplars_absent_by_default() -> None:
+    point = _encode_number_metric_with([])
+    assert "exemplars" not in point

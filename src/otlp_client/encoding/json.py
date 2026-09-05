@@ -18,6 +18,7 @@ from otlp_client.model.common import InstrumentationScope, Resource
 from otlp_client.model.logs import LogRecord, ResourceLogs
 from otlp_client.model.metrics import (
     Buckets,
+    Exemplar,
     ExponentialHistogram,
     ExponentialHistogramDataPoint,
     Gauge,
@@ -72,6 +73,27 @@ def _encode_scope(scope: InstrumentationScope) -> dict[str, Any]:
     )
 
 
+def _encode_exemplar(exemplar: Exemplar) -> dict[str, Any]:
+    # bool before int: bool subclasses int, and a boolean is not a measurement.
+    if isinstance(exemplar.value, bool):
+        raise TypeError("exemplar values must be int or float, not bool")
+    value_field = (
+        {"asInt": u64(exemplar.value)}
+        if isinstance(exemplar.value, int)
+        else {"asDouble": exemplar.value}
+    )
+    return omit_empty(
+        {
+            "filteredAttributes": encode_attributes(exemplar.filtered_attributes),
+            "timeUnixNano": u64(exemplar.time_unix_nano),
+            **value_field,
+            # hex, never base64 -- the same rule as span and log record ids.
+            "spanId": hex_id(exemplar.span_id) if exemplar.span_id else None,
+            "traceId": hex_id(exemplar.trace_id) if exemplar.trace_id else None,
+        }
+    )
+
+
 def _encode_number_point(point: NumberDataPoint) -> dict[str, Any]:
     # bool before int: bool subclasses int, and a bool is not a valid metric value.
     if isinstance(point.value, bool):
@@ -87,6 +109,7 @@ def _encode_number_point(point: NumberDataPoint) -> dict[str, Any]:
             else None,
             "timeUnixNano": u64(point.time_unix_nano),
             "flags": point.flags or None,
+            "exemplars": [_encode_exemplar(e) for e in point.exemplars],
             **value_field,
         }
     )
@@ -105,6 +128,7 @@ def _encode_histogram_point(point: HistogramDataPoint) -> dict[str, Any]:
             "bucketCounts": [u64(c) for c in point.bucket_counts],
             "explicitBounds": list(point.explicit_bounds),
             "flags": point.flags or None,
+            "exemplars": [_encode_exemplar(e) for e in point.exemplars],
             "min": point.min,
             "max": point.max,
         }
@@ -137,6 +161,7 @@ def _encode_exponential_point(point: ExponentialHistogramDataPoint) -> dict[str,
             "min": point.min,
             "max": point.max,
             "flags": point.flags or None,
+            "exemplars": [_encode_exemplar(e) for e in point.exemplars],
         }
     )
 

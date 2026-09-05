@@ -24,11 +24,28 @@ DATA_POINT_FLAGS_NO_RECORDED_VALUE = 0x00000001
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class Exemplar:
+    """A sample measurement linked to the trace that produced it.
+
+    `filtered_attributes` carries attributes that are NOT already present on
+    the parent data point; duplicating the point's own attributes here is
+    what the proto's name is warning against.
+    """
+
+    time_unix_nano: int
+    value: int | float
+    filtered_attributes: Mapping[str, AnyValue] = field(default=_EMPTY, hash=False)
+    span_id: bytes | None = None
+    trace_id: bytes | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class NumberDataPoint:
     time_unix_nano: int
     value: int | float
     attributes: Mapping[str, AnyValue] = field(default=_EMPTY, hash=False)
     start_time_unix_nano: int | None = None
+    exemplars: Sequence[Exemplar] = ()
     flags: int = 0
 
 
@@ -41,6 +58,7 @@ class HistogramDataPoint:
     sum: float | None = None
     attributes: Mapping[str, AnyValue] = field(default=_EMPTY, hash=False)
     start_time_unix_nano: int | None = None
+    exemplars: Sequence[Exemplar] = ()
     flags: int = 0
     min: float | None = None
     max: float | None = None
@@ -86,6 +104,7 @@ class ExponentialHistogramDataPoint:
     attributes: Mapping[str, AnyValue] = field(default=_EMPTY, hash=False)
     start_time_unix_nano: int | None = None
     flags: int = 0
+    exemplars: Sequence[Exemplar] = ()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
