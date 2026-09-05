@@ -109,17 +109,12 @@ class OTLPConfig:
         except ValueError as exc:
             raise OTLPConfigError(f"unknown protocol {raw_protocol!r}") from exc
 
-        raw_compression = src.get("OTEL_EXPORTER_OTLP_COMPRESSION", Compression.NONE.value)
-        try:
-            compression = Compression(raw_compression)
-        except ValueError as exc:
-            raise OTLPConfigError(f"unknown compression {raw_compression!r}") from exc
-
-        timeout_ms = src.get("OTEL_EXPORTER_OTLP_TIMEOUT")
-        try:
-            timeout = float(timeout_ms) / 1000.0 if timeout_ms else 10.0
-        except ValueError as exc:
-            raise OTLPConfigError(f"invalid timeout {timeout_ms!r}") from exc
+        base_compression = _parse_compression(
+            src.get("OTEL_EXPORTER_OTLP_COMPRESSION"), "OTEL_EXPORTER_OTLP_COMPRESSION"
+        )
+        base_timeout = _parse_timeout(
+            src.get("OTEL_EXPORTER_OTLP_TIMEOUT"), "OTEL_EXPORTER_OTLP_TIMEOUT"
+        )
 
         return cls(
             endpoint=src.get("OTEL_EXPORTER_OTLP_ENDPOINT", _DEFAULT_ENDPOINTS[protocol]),
@@ -128,11 +123,37 @@ class OTLPConfig:
             insecure=_parse_bool(
                 src.get("OTEL_EXPORTER_OTLP_INSECURE", ""), "OTEL_EXPORTER_OTLP_INSECURE"
             ),
-            timeout=timeout,
-            compression=compression,
+            timeout=10.0 if base_timeout is None else base_timeout,
+            compression=Compression.NONE if base_compression is None else base_compression,
             metrics_endpoint=src.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"),
             logs_endpoint=src.get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"),
             traces_endpoint=src.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),
+            metrics_headers=_signal_headers(src, "METRICS"),
+            logs_headers=_signal_headers(src, "LOGS"),
+            traces_headers=_signal_headers(src, "TRACES"),
+            metrics_timeout=_parse_timeout(
+                src.get("OTEL_EXPORTER_OTLP_METRICS_TIMEOUT"),
+                "OTEL_EXPORTER_OTLP_METRICS_TIMEOUT",
+            ),
+            logs_timeout=_parse_timeout(
+                src.get("OTEL_EXPORTER_OTLP_LOGS_TIMEOUT"), "OTEL_EXPORTER_OTLP_LOGS_TIMEOUT"
+            ),
+            traces_timeout=_parse_timeout(
+                src.get("OTEL_EXPORTER_OTLP_TRACES_TIMEOUT"),
+                "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT",
+            ),
+            metrics_compression=_parse_compression(
+                src.get("OTEL_EXPORTER_OTLP_METRICS_COMPRESSION"),
+                "OTEL_EXPORTER_OTLP_METRICS_COMPRESSION",
+            ),
+            logs_compression=_parse_compression(
+                src.get("OTEL_EXPORTER_OTLP_LOGS_COMPRESSION"),
+                "OTEL_EXPORTER_OTLP_LOGS_COMPRESSION",
+            ),
+            traces_compression=_parse_compression(
+                src.get("OTEL_EXPORTER_OTLP_TRACES_COMPRESSION"),
+                "OTEL_EXPORTER_OTLP_TRACES_COMPRESSION",
+            ),
             certificate_file=src.get("OTEL_EXPORTER_OTLP_CERTIFICATE"),
             client_certificate_file=src.get("OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE"),
             client_key_file=src.get("OTEL_EXPORTER_OTLP_CLIENT_KEY"),
@@ -205,6 +226,37 @@ def _parse_bool(raw: str, name: str) -> bool:
     if value not in ("false", ""):
         _LOGGER.warning("ignoring unrecognised %s value %r, falling back to false", name, raw)
     return False
+
+
+def _parse_timeout(raw: str | None, name: str) -> float | None:
+    """Parse a millisecond timeout variable into seconds, or None if unset."""
+    if not raw:
+        return None
+    try:
+        return float(raw) / 1000.0
+    except ValueError as exc:
+        raise OTLPConfigError(f"invalid timeout in {name}: {raw!r}") from exc
+
+
+def _parse_compression(raw: str | None, name: str) -> Compression | None:
+    """Parse a compression variable, or None if unset."""
+    if not raw:
+        return None
+    try:
+        return Compression(raw)
+    except ValueError as exc:
+        raise OTLPConfigError(f"unknown compression in {name}: {raw!r}") from exc
+
+
+def _signal_headers(src: Mapping[str, str], signal: str) -> Mapping[str, str] | None:
+    """Read one per-signal headers variable.
+
+    Absent gives None, meaning "use the general value". Present gives a
+    mapping that replaces it — including an empty one, which means "send no
+    headers for this signal".
+    """
+    raw = src.get(f"OTEL_EXPORTER_OTLP_{signal}_HEADERS")
+    return None if raw is None else _parse_headers(raw)
 
 
 def _parse_headers(raw: str) -> Mapping[str, str]:

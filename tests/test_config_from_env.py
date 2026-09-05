@@ -132,3 +132,54 @@ def test_insecure_rejects_values_the_spec_forbids_extending_to(
         cfg = OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_INSECURE": raw})
     assert cfg.insecure is False
     assert "OTEL_EXPORTER_OTLP_INSECURE" in caplog.text
+
+
+def test_per_signal_headers_are_read_and_replace_the_general_ones() -> None:
+    cfg = OTLPConfig.from_env(
+        {
+            "OTEL_EXPORTER_OTLP_HEADERS": "api-key=secret",
+            "OTEL_EXPORTER_OTLP_TRACES_HEADERS": "x-tenant=acme",
+        }
+    )
+    assert cfg.headers_for(SignalKind.TRACES) == {"x-tenant": "acme"}
+    assert cfg.headers_for(SignalKind.METRICS) == {"api-key": "secret"}
+
+
+def test_empty_per_signal_headers_variable_means_send_none() -> None:
+    # Absent -> None -> fall back. Present but empty -> {} -> replace with nothing.
+    cfg = OTLPConfig.from_env(
+        {
+            "OTEL_EXPORTER_OTLP_HEADERS": "api-key=secret",
+            "OTEL_EXPORTER_OTLP_LOGS_HEADERS": "",
+        }
+    )
+    assert cfg.logs_headers == {}
+    assert cfg.headers_for(SignalKind.LOGS) == {}
+    assert cfg.metrics_headers is None
+
+
+def test_per_signal_timeouts_are_milliseconds() -> None:
+    cfg = OTLPConfig.from_env(
+        {
+            "OTEL_EXPORTER_OTLP_TIMEOUT": "10000",
+            "OTEL_EXPORTER_OTLP_METRICS_TIMEOUT": "2500",
+        }
+    )
+    assert cfg.timeout_for(SignalKind.METRICS) == 2.5
+    assert cfg.timeout_for(SignalKind.LOGS) == 10.0
+
+
+def test_per_signal_compression_is_read() -> None:
+    cfg = OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_LOGS_COMPRESSION": "gzip"})
+    assert cfg.compression_for(SignalKind.LOGS) is Compression.GZIP
+    assert cfg.compression_for(SignalKind.TRACES) is Compression.NONE
+
+
+def test_invalid_per_signal_timeout_is_rejected() -> None:
+    with pytest.raises(OTLPConfigError, match="timeout"):
+        OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_TRACES_TIMEOUT": "soon"})
+
+
+def test_invalid_per_signal_compression_is_rejected() -> None:
+    with pytest.raises(OTLPConfigError, match="compression"):
+        OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_TRACES_COMPRESSION": "brotli"})
