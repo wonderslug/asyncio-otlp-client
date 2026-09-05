@@ -75,6 +75,12 @@ class GRPCTransport:
             raise OTLPConfigError(_MISSING) from exc
 
         target, plaintext = _target(config.endpoint)
+        if not plaintext and config.insecure_skip_verify:
+            raise OTLPConfigError(
+                "insecure_skip_verify is not supported over gRPC: grpcio provides no way "
+                "to disable certificate verification. Use certificate_file to trust a "
+                "self-signed CA, or switch to an http:// endpoint."
+            )
         options = [("grpc.primary_user_agent", "asyncio-otlp-client")]
         if plaintext:
             channel = aio.insecure_channel(target, options=options)

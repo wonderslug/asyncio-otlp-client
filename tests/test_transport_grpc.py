@@ -137,3 +137,23 @@ async def test_json_encoder_is_rejected() -> None:
     config = OTLPConfig(endpoint="http://127.0.0.1:4317", protocol=OTLPProtocol.GRPC)
     with pytest.raises(OTLPConfigError, match="protobuf"):
         await GRPCTransport.create(config, JSONEncoder())
+
+
+async def test_insecure_skip_verify_is_rejected_on_a_tls_target() -> None:
+    config = OTLPConfig(
+        endpoint="https://127.0.0.1:4317",
+        protocol=OTLPProtocol.GRPC,
+        insecure_skip_verify=True,
+    )
+    with pytest.raises(OTLPConfigError, match="insecure_skip_verify"):
+        await GRPCTransport.create(config, build_protobuf_encoder())
+
+
+async def test_insecure_skip_verify_is_harmless_on_a_plaintext_target() -> None:
+    config = OTLPConfig(
+        endpoint="http://127.0.0.1:4317",
+        protocol=OTLPProtocol.GRPC,
+        insecure_skip_verify=True,
+    )
+    transport = await GRPCTransport.create(config, build_protobuf_encoder())
+    await transport.aclose()
