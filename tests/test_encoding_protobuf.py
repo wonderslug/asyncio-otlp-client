@@ -13,7 +13,7 @@ from otlp_client.encoding.protobuf import build_protobuf_encoder
 from otlp_client.model.common import InstrumentationScope, Resource
 from otlp_client.model.logs import ResourceLogs, ScopeLogs, SeverityNumber, log_record
 from otlp_client.model.metrics import ResourceMetrics, ScopeMetrics, gauge, sum_
-from otlp_client.model.traces import ResourceSpans, ScopeSpans, span
+from otlp_client.model.traces import ResourceSpans, ScopeSpans, Span, Status, span
 from otlp_client.signals import SignalKind
 
 TRACE_ID = bytes.fromhex("0102030405060708090a0b0c0d0e0f10")
@@ -83,6 +83,28 @@ def test_traces_round_trip() -> None:
     assert pb_span.end_time_unix_nano == 2
 
 
+def test_default_status_is_omitted_like_the_json_encoder() -> None:
+    # Span built directly (not through the span() factory, which never
+    # constructs this state): a Status with an UNSET code and no message
+    # carries nothing a collector acts on, and the JSON encoder's omit_empty
+    # already drops it. The protobuf side must not create wire presence for
+    # it either, since Task 15's oracle asserts both encoders agree.
+    item = Span(
+        trace_id=TRACE_ID,
+        span_id=SPAN_ID,
+        name="s",
+        start_time_unix_nano=1,
+        end_time_unix_nano=2,
+        status=Status(),
+    )
+    payload = build_protobuf_encoder().encode(SignalKind.TRACES, [
+        ResourceSpans(resource=RESOURCE, scope_spans=[ScopeSpans(scope=SCOPE, spans=[item])])
+    ])
+    pb_span = ExportTraceServiceRequest.FromString(payload).resource_spans[0]\
+        .scope_spans[0].spans[0]
+    assert pb_span.HasField("status") is False
+
+
 def test_decode_partial_success() -> None:
     response = ExportMetricsServiceResponse()
     response.partial_success.rejected_data_points = 5
@@ -102,21 +124,83 @@ def test_decode_full_success_returns_none() -> None:
     assert encoder.decode_response(SignalKind.METRICS, b"") is None
 
 
+def test_decode_garbage_body_returns_none_instead_of_raising() -> None:
+    # A misbehaving proxy or a truncated response can hand the transport an
+    # unparseable 2xx body. decode_response's job is to classify, not raise.
+    encoder = build_protobuf_encoder()
+    assert encoder.decode_response(SignalKind.METRICS, b"not a valid protobuf message") is None
+
+
 def test_profiles_is_not_implemented() -> None:
     with pytest.raises(NotImplementedError, match="profiles"):
         build_protobuf_encoder().encode(SignalKind.PROFILES, [])
 
 
-def test_module_does_not_import_protobuf_at_top_level() -> None:
+def _imports_opentelemetry_at_module_level(source: str) -> bool:
+    """True if `source` imports anything under `opentelemetry` at module level.
+
+    Recurses into module-level compound statements (`if`/`try`/`with`/`for`/
+    `while`, and their async variants) since those execute at import time too,
+    but stops at `FunctionDef`/`AsyncFunctionDef`/`ClassDef` — imports inside
+    those are exactly what a module with a lazily-imported extra is supposed
+    to contain. A plain `ast.walk` would descend into those bodies too and
+    produce false positives.
+    """
     import ast
+
+    def is_opentelemetry_import(node: ast.stmt) -> bool:
+        if not isinstance(node, ast.Import | ast.ImportFrom):
+            return False
+        name = getattr(node, "module", "") or ""
+        names = " ".join(alias.name for alias in node.names)
+        return "opentelemetry" in name + names
+
+    def walk(nodes: list[ast.stmt]) -> bool:
+        for node in nodes:
+            if is_opentelemetry_import(node):
+                return True
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                continue  # lazy imports live here by design; do not descend
+            if isinstance(node, ast.If | ast.For | ast.AsyncFor | ast.While):
+                if walk(node.body) or walk(node.orelse):
+                    return True
+            elif isinstance(node, ast.Try):
+                if (
+                    walk(node.body)
+                    or walk(node.orelse)
+                    or walk(node.finalbody)
+                    or any(walk(handler.body) for handler in node.handlers)
+                ):
+                    return True
+            elif isinstance(node, ast.With | ast.AsyncWith) and walk(node.body):
+                return True
+        return False
+
+    return walk(ast.parse(source).body)
+
+
+def test_module_does_not_import_protobuf_at_top_level() -> None:
     import pathlib
 
     source = pathlib.Path("src/otlp_client/encoding/protobuf.py").read_text()
-    tree = ast.parse(source)
-    for node in tree.body:  # module level only
-        if isinstance(node, ast.Import | ast.ImportFrom):
-            name = getattr(node, "module", "") or ""
-            names = " ".join(a.name for a in node.names)
-            assert "opentelemetry" not in name + names, (
-                "opentelemetry.proto must be imported lazily, not at module level"
-            )
+    assert not _imports_opentelemetry_at_module_level(source), (
+        "opentelemetry.proto must be imported lazily, not at module level"
+    )
+
+
+def test_the_module_level_import_checker_catches_a_try_wrapped_import() -> None:
+    # A natural "cache the availability probe" refactor: this executes at
+    # module-import time even though it never appears as a top-level
+    # Import/ImportFrom node, which is exactly the gap being closed here.
+    snippet = (
+        "try:\n"
+        "    import opentelemetry.proto.common.v1.common_pb2\n"
+        "except ImportError:\n"
+        "    pass\n"
+    )
+    assert _imports_opentelemetry_at_module_level(snippet)
+
+
+def test_the_module_level_import_checker_allows_a_lazy_import_inside_a_function() -> None:
+    snippet = "def f() -> None:\n    import opentelemetry.proto.common.v1.common_pb2\n"
+    assert not _imports_opentelemetry_at_module_level(snippet)

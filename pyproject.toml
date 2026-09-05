@@ -40,5 +40,13 @@ files = ["src", "tests"]
 module = "orjson"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# The generated opentelemetry.proto.*_pb2 modules ship their own mypy-protobuf
+# .pyi stubs, but the hand-written google.protobuf base package (e.g.
+# google.protobuf.message.DecodeError, used in encoding/protobuf.py) does not
+# publish a py.typed marker or stub-only package here.
+module = "google.protobuf.message"
+ignore_missing_imports = true
+
 [tool.ruff]
 line-length = 100

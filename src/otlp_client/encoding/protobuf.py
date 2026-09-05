@@ -13,7 +13,7 @@ from otlp_client.errors import OTLPConfigError
 from otlp_client.model.common import AnyValue, InstrumentationScope, Resource
 from otlp_client.model.logs import LogRecord, ResourceLogs
 from otlp_client.model.metrics import Gauge, Histogram, Metric, ResourceMetrics, Sum
-from otlp_client.model.traces import ResourceSpans, Span
+from otlp_client.model.traces import ResourceSpans, Span, StatusCode
 from otlp_client.outcomes import PartialSuccess
 from otlp_client.signals import SignalKind
 
@@ -55,7 +55,12 @@ class ProtobufEncoder:
     def decode_response(self, kind: SignalKind, body: bytes) -> PartialSuccess | None:
         if not body:
             return None
-        response = _response_type(kind).FromString(body)
+        from google.protobuf.message import DecodeError
+
+        try:
+            response = _response_type(kind).FromString(body)
+        except DecodeError:
+            return None
         partial = response.partial_success
         rejected = {
             SignalKind.METRICS: lambda p: p.rejected_data_points,
@@ -280,7 +285,12 @@ def _span(item: Span) -> Any:
             for link in item.links
         ],
     }
-    if item.status is not None:
+    # Mirror model/traces.py's span(): only set status when it carries
+    # information, so a default Status doesn't create wire presence that
+    # the JSON encoder's omit_empty already drops for the equivalent input.
+    if item.status is not None and (
+        item.status.code is not StatusCode.UNSET or item.status.message
+    ):
         kwargs["status"] = trace_pb2.Status(
             code=cast(Any, int(item.status.code)), message=item.status.message
         )
