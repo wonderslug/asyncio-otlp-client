@@ -128,6 +128,7 @@ SCRIPT = (
 import sys
 import otlp_client
 from otlp_client import OTLPClient, OTLPConfig, gauge  # noqa: F401
+from otlp_client.credentials import BasicAuth, BearerToken, OAuth2ClientCredentials  # noqa: F401
 from otlp_client.encoding.json import JSONEncoder
 from otlp_client.processor import BatchProcessor  # noqa: F401
 
@@ -151,6 +152,10 @@ assert b'"resourceMetrics"' in payload
 # "google.protobuf" import (not routed through "opentelemetry.proto") is
 # caught too -- a top-level-only check would miss it, since "google" alone
 # is not forbidden.
+# aiohttp is a core dependency, so it is not FORBIDDEN -- but it must stay
+# lazily imported. Home Assistant loads this module inside a running event
+# loop and OAuth2ClientCredentials must not drag aiohttp in at import time.
+assert "aiohttp" not in sys.modules, "aiohttp must not be imported at module level"
 leaked = sorted(
     m for m in sys.modules
     if any(m == prefix or m.startswith(prefix + ".") for prefix in FORBIDDEN)
