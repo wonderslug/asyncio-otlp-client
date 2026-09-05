@@ -57,6 +57,36 @@ class HangingTransport:
         pass
 
 
+class FakeCredentials:
+    """A CredentialProvider double. Replays scripted header maps.
+
+    Once the script is exhausted the last map repeats, matching FakeTransport.
+    `error`, when set, is raised from `headers()` instead.
+    """
+
+    def __init__(
+        self,
+        headers_by_call: Sequence[Mapping[str, str]],
+        error: BaseException | None = None,
+    ) -> None:
+        self._headers = [dict(h) for h in headers_by_call] or [{}]
+        self._index = 0
+        self._error = error
+        self.calls: list[SignalKind] = []
+        self.invalidated: list[SignalKind] = []
+
+    async def headers(self, kind: SignalKind) -> Mapping[str, str]:
+        self.calls.append(kind)
+        if self._error is not None:
+            raise self._error
+        headers = self._headers[min(self._index, len(self._headers) - 1)]
+        self._index += 1
+        return headers
+
+    async def invalidate(self, kind: SignalKind) -> None:
+        self.invalidated.append(kind)
+
+
 class FakeClock:
     """A monotonic clock that only moves when something sleeps on it.
 

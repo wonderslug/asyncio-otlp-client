@@ -4,18 +4,26 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from types import TracebackType
 from typing import Self
 
 from otlp_client.config import OTLPConfig, OTLPProtocol
+from otlp_client.credentials import CredentialProvider
 from otlp_client.encoding.base import Encoder
 from otlp_client.errors import OTLPConfigError, OTLPPermanentError, OTLPTransportError
 from otlp_client.model.common import InstrumentationScope, Resource
 from otlp_client.model.logs import LogRecord, ResourceLogs, ScopeLogs
 from otlp_client.model.metrics import Metric, ResourceMetrics, ScopeMetrics
 from otlp_client.model.traces import ResourceSpans, ScopeSpans, Span
-from otlp_client.outcomes import ExportOutcome, PartialSuccess, Permanent, Retryable, Success
+from otlp_client.outcomes import (
+    ExportOutcome,
+    PartialSuccess,
+    Permanent,
+    Retryable,
+    Success,
+    is_credential_rejection,
+)
 from otlp_client.retry import RetryPolicy, with_retry
 from otlp_client.signals import SignalKind
 from otlp_client.transport.base import Transport
@@ -57,6 +65,7 @@ class OTLPClient:
         *,
         transport: Transport,
         encoder: Encoder,
+        credentials: CredentialProvider | None = None,
         scope: InstrumentationScope | None = None,
         policy: RetryPolicy | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -65,6 +74,7 @@ class OTLPClient:
         self._config = config
         self._transport = transport
         self._encoder = encoder
+        self._credentials = credentials
         self._scope = scope or DEFAULT_SCOPE
         self._policy = policy or RetryPolicy.from_config(config)
         self._sleep = sleep
@@ -77,6 +87,7 @@ class OTLPClient:
         *,
         session: object | None = None,
         scope: InstrumentationScope | None = None,
+        credentials: CredentialProvider | None = None,
     ) -> OTLPClient:
         """Build a client for the configured protocol.
 
@@ -96,19 +107,56 @@ class OTLPClient:
             if session is not None and not isinstance(session, aiohttp.ClientSession):
                 raise OTLPConfigError("session must be an aiohttp.ClientSession")
             transport = await HTTPTransport.create(config, encoder, session=session)
-        return cls(config, transport=transport, encoder=encoder, scope=scope)
+        return cls(
+            config, transport=transport, encoder=encoder, scope=scope, credentials=credentials
+        )
 
     @property
     def resource(self) -> Resource:
         return self._config.resource or _EMPTY_RESOURCE
+
+    async def _headers(self, kind: SignalKind) -> Mapping[str, str]:
+        """Static headers for the signal, with the provider's layered on top.
+
+        The provider wins a key collision: a rotating `authorization` must be
+        able to replace a stale configured one, while configured headers that
+        the provider says nothing about survive.
+        """
+        static = self._config.headers_for(kind)
+        if self._credentials is None:
+            return static
+        return {**static, **await self._credentials.headers(kind)}
 
     async def _export(self, kind: SignalKind, data: Sequence[object]) -> Success | PartialSuccess:
         if not data:
             return Success()
         payload = self._encoder.encode(kind, data)
 
+        reauthed = False
+
         async def attempt() -> ExportOutcome:
-            return await self._transport.send(kind, payload, self._config.headers_for(kind))
+            nonlocal reauthed
+            try:
+                outcome = await self._transport.send(kind, payload, await self._headers(kind))
+                if (
+                    not reauthed
+                    and self._credentials is not None
+                    and is_credential_rejection(outcome)
+                ):
+                    # One re-auth per export, outside the retry budget and
+                    # without backoff: covers a token revoked or expired between
+                    # mint and arrival, without turning a wrong secret into a
+                    # token-endpoint storm.
+                    reauthed = True
+                    await self._credentials.invalidate(kind)
+                    outcome = await self._transport.send(kind, payload, await self._headers(kind))
+                return outcome
+            except OTLPPermanentError as exc:
+                # Only a provider can raise these here; transports return
+                # outcomes. A rejected client secret must fail fast.
+                return Permanent(message=f"credential provider failed: {exc}")
+            except OTLPTransportError as exc:
+                return Retryable(message=f"credential provider failed: {exc}")
 
         outcome = await with_retry(
             attempt,
