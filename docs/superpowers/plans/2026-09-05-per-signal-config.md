@@ -973,7 +973,7 @@ Use one client per signal if you need them to differ.
 In `docs/auth-audit.md`, change the per-signal row of the conformance table from:
 
 ```markdown
-| **Per-signal variants** of all of the above | `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_*` | **Missing** |
+| Per-signal variants of all five | `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_*` | **Missing** |
 ```
 
 to:
