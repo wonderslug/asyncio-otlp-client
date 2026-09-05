@@ -12,7 +12,16 @@ from typing import Any, cast
 from otlp_client.errors import OTLPConfigError
 from otlp_client.model.common import AnyValue, InstrumentationScope, Resource
 from otlp_client.model.logs import LogRecord, ResourceLogs
-from otlp_client.model.metrics import Gauge, Histogram, Metric, ResourceMetrics, Sum
+from otlp_client.model.metrics import (
+    Buckets,
+    ExponentialHistogram,
+    Gauge,
+    Histogram,
+    Metric,
+    ResourceMetrics,
+    Sum,
+    Summary,
+)
 from otlp_client.model.traces import ResourceSpans, Span, StatusCode
 from otlp_client.outcomes import PartialSuccess
 from otlp_client.signals import SignalKind
@@ -157,6 +166,27 @@ def _scope(scope: InstrumentationScope) -> Any:
     )
 
 
+def _buckets_is_empty(buckets: Buckets) -> bool:
+    """True when a Buckets side carries nothing worth wire presence for.
+
+    Mirrors the JSON encoder's omit_empty, which drops the "positive"/"negative"
+    key entirely once offset and bucketCounts are both empty. Unlike the plain
+    scalar fields on ExponentialHistogramDataPoint, `positive` and `negative`
+    are message-typed and so have explicit presence: setting one to an
+    all-default Buckets() would still register as "set" and break equality
+    against the JSON path, which never emits the key at all.
+    """
+    return not buckets.offset and not buckets.bucket_counts
+
+
+def _buckets(buckets: Buckets) -> Any:
+    from opentelemetry.proto.metrics.v1 import metrics_pb2
+
+    return metrics_pb2.ExponentialHistogramDataPoint.Buckets(
+        offset=buckets.offset, bucket_counts=list(buckets.bucket_counts)
+    )
+
+
 def _number_point(point: Any) -> Any:
     from opentelemetry.proto.metrics.v1 import metrics_pb2
 
@@ -203,6 +233,51 @@ def _metric(metric: Metric) -> Any:
                     sum=p.sum,
                     bucket_counts=list(p.bucket_counts),
                     explicit_bounds=list(p.explicit_bounds),
+                )
+                for p in data.data_points
+            ],
+        )
+    elif isinstance(data, ExponentialHistogram):
+        points = []
+        for p in data.data_points:
+            point_kwargs: dict[str, Any] = {
+                "attributes": _key_values(p.attributes),
+                "time_unix_nano": p.time_unix_nano,
+                "start_time_unix_nano": p.start_time_unix_nano or 0,
+                "count": p.count,
+                "sum": p.sum,
+                "scale": p.scale,
+                "zero_count": p.zero_count,
+                "min": p.min,
+                "max": p.max,
+            }
+            # positive/negative are message-typed fields with explicit
+            # presence: only set them when they carry information, matching
+            # the JSON encoder's omit_empty for an all-default Buckets.
+            if not _buckets_is_empty(p.positive):
+                point_kwargs["positive"] = _buckets(p.positive)
+            if not _buckets_is_empty(p.negative):
+                point_kwargs["negative"] = _buckets(p.negative)
+            points.append(metrics_pb2.ExponentialHistogramDataPoint(**point_kwargs))
+        kwargs["exponential_histogram"] = metrics_pb2.ExponentialHistogram(
+            aggregation_temporality=cast(Any, int(data.aggregation_temporality)),
+            data_points=points,
+        )
+    elif isinstance(data, Summary):
+        kwargs["summary"] = metrics_pb2.Summary(
+            data_points=[
+                metrics_pb2.SummaryDataPoint(
+                    attributes=_key_values(p.attributes),
+                    time_unix_nano=p.time_unix_nano,
+                    start_time_unix_nano=p.start_time_unix_nano or 0,
+                    count=p.count,
+                    sum=p.sum,
+                    quantile_values=[
+                        metrics_pb2.SummaryDataPoint.ValueAtQuantile(
+                            quantile=q.quantile, value=q.value
+                        )
+                        for q in p.quantile_values
+                    ],
                 )
                 for p in data.data_points
             ],

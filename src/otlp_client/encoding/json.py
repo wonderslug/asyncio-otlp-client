@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json as _stdlib_json
+import math
 from collections.abc import Sequence
 from typing import Any
 
@@ -16,6 +17,9 @@ from otlp_client.encoding.primitives import (
 from otlp_client.model.common import InstrumentationScope, Resource
 from otlp_client.model.logs import LogRecord, ResourceLogs
 from otlp_client.model.metrics import (
+    Buckets,
+    ExponentialHistogram,
+    ExponentialHistogramDataPoint,
     Gauge,
     Histogram,
     HistogramDataPoint,
@@ -24,6 +28,8 @@ from otlp_client.model.metrics import (
     ResourceMetrics,
     ScopeMetrics,
     Sum,
+    Summary,
+    SummaryDataPoint,
 )
 from otlp_client.model.traces import ResourceSpans, Span, SpanEvent, SpanLink
 from otlp_client.outcomes import PartialSuccess
@@ -101,6 +107,60 @@ def _encode_histogram_point(point: HistogramDataPoint) -> dict[str, Any]:
     )
 
 
+def _encode_buckets(buckets: Buckets) -> dict[str, Any]:
+    return omit_empty(
+        {
+            "offset": buckets.offset or None,
+            "bucketCounts": [u64(c) for c in buckets.bucket_counts],
+        }
+    )
+
+
+def _encode_exponential_point(point: ExponentialHistogramDataPoint) -> dict[str, Any]:
+    return omit_empty(
+        {
+            "attributes": encode_attributes(point.attributes),
+            "startTimeUnixNano": u64(point.start_time_unix_nano)
+            if point.start_time_unix_nano is not None
+            else None,
+            "timeUnixNano": u64(point.time_unix_nano),
+            "count": u64(point.count),
+            "sum": point.sum,
+            "scale": point.scale or None,
+            "zeroCount": u64(point.zero_count) if point.zero_count else None,
+            "positive": _encode_buckets(point.positive),
+            "negative": _encode_buckets(point.negative),
+            "min": point.min,
+            "max": point.max,
+        }
+    )
+
+
+def _encode_summary_point(point: SummaryDataPoint) -> dict[str, Any]:
+    return omit_empty(
+        {
+            "attributes": encode_attributes(point.attributes),
+            "startTimeUnixNano": u64(point.start_time_unix_nano)
+            if point.start_time_unix_nano is not None
+            else None,
+            "timeUnixNano": u64(point.time_unix_nano),
+            "count": u64(point.count),
+            # `sum` is a plain (non-optional) scalar double on the wire, so
+            # protobuf's own "is this field at its default" check decides
+            # presence -- and that check is a bit-pattern comparison, not an
+            # IEEE-754 one. -0.0 has a different bit pattern than the 0.0
+            # default, so protobuf keeps it on the wire even though
+            # `-0.0 == 0.0` (and `-0.0 or None` is `None`) in Python. A plain
+            # `or None` here would drop it, diverging from the protobuf
+            # encoder for that one value.
+            "sum": point.sum if point.sum or math.copysign(1.0, point.sum) < 0 else None,
+            "quantileValues": [
+                {"quantile": q.quantile, "value": q.value} for q in point.quantile_values
+            ],
+        }
+    )
+
+
 def _encode_metric(metric: Metric) -> dict[str, Any]:
     data = metric.data
     if isinstance(data, Gauge):
@@ -122,6 +182,15 @@ def _encode_metric(metric: Metric) -> dict[str, Any]:
                 "aggregationTemporality": int(data.aggregation_temporality),
             }
         }
+    elif isinstance(data, ExponentialHistogram):
+        body = {
+            "exponentialHistogram": {
+                "dataPoints": [_encode_exponential_point(p) for p in data.data_points],
+                "aggregationTemporality": int(data.aggregation_temporality),
+            }
+        }
+    elif isinstance(data, Summary):
+        body = {"summary": {"dataPoints": [_encode_summary_point(p) for p in data.data_points]}}
     else:  # pragma: no cover - exhaustive over MetricData
         raise TypeError(f"unsupported metric data type: {type(data)!r}")
 

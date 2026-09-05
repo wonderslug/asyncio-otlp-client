@@ -55,7 +55,59 @@ class Histogram:
     aggregation_temporality: AggregationTemporality = AggregationTemporality.CUMULATIVE
 
 
-type MetricData = Gauge | Sum | Histogram
+@dataclass(frozen=True, slots=True)
+class Buckets:
+    """One side of an exponential histogram."""
+
+    offset: int = 0
+    bucket_counts: Sequence[int] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ExponentialHistogramDataPoint:
+    time_unix_nano: int
+    count: int
+    scale: int = 0
+    zero_count: int = 0
+    positive: Buckets = Buckets()
+    negative: Buckets = Buckets()
+    sum: float | None = None
+    min: float | None = None
+    max: float | None = None
+    attributes: Mapping[str, AnyValue] = field(default=_EMPTY, hash=False)
+    start_time_unix_nano: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ExponentialHistogram:
+    data_points: Sequence[ExponentialHistogramDataPoint]
+    aggregation_temporality: AggregationTemporality = AggregationTemporality.CUMULATIVE
+
+
+@dataclass(frozen=True, slots=True)
+class ValueAtQuantile:
+    quantile: float
+    value: float
+
+
+@dataclass(frozen=True, slots=True)
+class SummaryDataPoint:
+    time_unix_nano: int
+    count: int
+    sum: float = 0.0
+    quantile_values: Sequence[ValueAtQuantile] = ()
+    attributes: Mapping[str, AnyValue] = field(default=_EMPTY, hash=False)
+    start_time_unix_nano: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Summary:
+    """Legacy metric type. The proto carries no aggregation temporality."""
+
+    data_points: Sequence[SummaryDataPoint]
+
+
+type MetricData = Gauge | Sum | Histogram | ExponentialHistogram | Summary
 
 
 @dataclass(frozen=True, slots=True)

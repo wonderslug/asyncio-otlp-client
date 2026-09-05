@@ -8,6 +8,9 @@ from otlp_client.model.common import InstrumentationScope, Resource
 from otlp_client.model.logs import LogRecord, ResourceLogs, ScopeLogs, SeverityNumber
 from otlp_client.model.metrics import (
     AggregationTemporality,
+    Buckets,
+    ExponentialHistogram,
+    ExponentialHistogramDataPoint,
     Gauge,
     Histogram,
     HistogramDataPoint,
@@ -16,6 +19,9 @@ from otlp_client.model.metrics import (
     ResourceMetrics,
     ScopeMetrics,
     Sum,
+    Summary,
+    SummaryDataPoint,
+    ValueAtQuantile,
 )
 from otlp_client.model.traces import (
     ResourceSpans,
@@ -77,6 +83,44 @@ histogram_points = st.builds(
     attributes=attributes,
 )
 
+exponential_points = st.builds(
+    ExponentialHistogramDataPoint,
+    time_unix_nano=u64,
+    count=u64,
+    scale=st.integers(min_value=-10, max_value=10),
+    zero_count=u64,
+    positive=st.builds(
+        Buckets,
+        offset=st.integers(min_value=-100, max_value=100),
+        bucket_counts=st.lists(u64, max_size=3),
+    ),
+    negative=st.builds(
+        Buckets,
+        offset=st.integers(min_value=-100, max_value=100),
+        bucket_counts=st.lists(u64, max_size=3),
+    ),
+    sum=st.one_of(st.none(), finite),
+    min=st.one_of(st.none(), finite),
+    max=st.one_of(st.none(), finite),
+    attributes=attributes,
+)
+
+summary_points = st.builds(
+    SummaryDataPoint,
+    time_unix_nano=u64,
+    count=u64,
+    sum=finite,
+    quantile_values=st.lists(
+        st.builds(
+            ValueAtQuantile,
+            quantile=st.floats(min_value=0, max_value=1, width=32),
+            value=finite,
+        ),
+        max_size=3,
+    ),
+    attributes=attributes,
+)
+
 metric_data = st.one_of(
     st.builds(Gauge, data_points=st.lists(number_points, min_size=1, max_size=3)),
     st.builds(
@@ -90,6 +134,12 @@ metric_data = st.one_of(
         data_points=st.lists(histogram_points, min_size=1, max_size=3),
         aggregation_temporality=st.sampled_from(AggregationTemporality),
     ),
+    st.builds(
+        ExponentialHistogram,
+        data_points=st.lists(exponential_points, min_size=1, max_size=3),
+        aggregation_temporality=st.sampled_from(AggregationTemporality),
+    ),
+    st.builds(Summary, data_points=st.lists(summary_points, min_size=1, max_size=3)),
 )
 
 metrics = st.builds(Metric, name=text, data=metric_data, description=text, unit=text)
