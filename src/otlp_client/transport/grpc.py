@@ -16,9 +16,7 @@ from otlp_client.errors import OTLPConfigError
 from otlp_client.outcomes import ExportOutcome, Permanent, Retryable, Success
 from otlp_client.signals import SignalKind
 
-_MISSING = (
-    "the gRPC transport needs the optional extra: pip install 'asyncio-otlp-client[grpc]'"
-)
+_MISSING = "the gRPC transport needs the optional extra: pip install 'asyncio-otlp-client[grpc]'"
 
 _METHODS: dict[SignalKind, str] = {
     SignalKind.METRICS: "/opentelemetry.proto.collector.metrics.v1.MetricsService/Export",
@@ -66,9 +64,7 @@ class GRPCTransport:
     async def create(cls, config: OTLPConfig, encoder: Encoder) -> GRPCTransport:
         """Open a channel, doing all blocking credential loading off the loop."""
         if encoder.content_type != "application/x-protobuf":
-            raise OTLPConfigError(
-                "OTLP over gRPC has no JSON encoding; use the protobuf encoder"
-            )
+            raise OTLPConfigError("OTLP over gRPC has no JSON encoding; use the protobuf encoder")
         try:
             from grpc import aio
         except ImportError as exc:

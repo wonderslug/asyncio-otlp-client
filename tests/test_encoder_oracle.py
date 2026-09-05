@@ -25,9 +25,7 @@ from otlp_client.model.traces import ResourceSpans
 from otlp_client.signals import SignalKind
 from tests.support import strategies as s
 
-SETTINGS = settings(
-    max_examples=200, suppress_health_check=[HealthCheck.too_slow], deadline=None
-)
+SETTINGS = settings(max_examples=200, suppress_health_check=[HealthCheck.too_slow], deadline=None)
 
 
 _HEX_ID_KEYS = frozenset({"traceId", "spanId", "parentSpanId"})

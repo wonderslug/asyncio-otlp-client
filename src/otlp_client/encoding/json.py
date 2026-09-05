@@ -71,9 +71,7 @@ def _encode_number_point(point: NumberDataPoint) -> dict[str, Any]:
     if isinstance(point.value, bool):
         raise TypeError("metric data point values must be int or float, not bool")
     value_field = (
-        {"asInt": u64(point.value)}
-        if isinstance(point.value, int)
-        else {"asDouble": point.value}
+        {"asInt": u64(point.value)} if isinstance(point.value, int) else {"asDouble": point.value}
     )
     return omit_empty(
         {

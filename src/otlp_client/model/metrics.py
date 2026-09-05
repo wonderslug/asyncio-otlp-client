@@ -113,7 +113,5 @@ def sum_(
         attributes=attributes or _EMPTY,
         start_time_unix_nano=start_time_unix_nano,
     )
-    data = Sum(
-        data_points=(point,), aggregation_temporality=temporality, is_monotonic=is_monotonic
-    )
+    data = Sum(data_points=(point,), aggregation_temporality=temporality, is_monotonic=is_monotonic)
     return Metric(name=name, data=data, unit=unit, description=description)

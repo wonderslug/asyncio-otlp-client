@@ -162,9 +162,7 @@ class OTLPClient:
         )
         return await self.export_resource_logs([envelope])
 
-    async def export_resource_logs(
-        self, data: Sequence[ResourceLogs]
-    ) -> Success | PartialSuccess:
+    async def export_resource_logs(self, data: Sequence[ResourceLogs]) -> Success | PartialSuccess:
         """Export fully built log envelopes."""
         return await self._export(SignalKind.LOGS, data)
 

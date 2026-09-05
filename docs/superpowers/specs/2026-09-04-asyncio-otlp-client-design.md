@@ -120,8 +120,9 @@ from otlp_client import gauge
 
 await client.export_metrics(
     resource=hass_resource,
-    metrics=[gauge("home.temperature", 21.5, unit="Cel",
-                   attributes={"entity_id": "sensor.living_room"})],
+    metrics=[
+        gauge("home.temperature", 21.5, unit="Cel", attributes={"entity_id": "sensor.living_room"})
+    ],
 )
 ```
 
@@ -137,7 +138,7 @@ async def export_metrics(
     self,
     metrics: Sequence[Metric],
     *,
-    resource: Resource | None = None,   # defaults to config.resource
+    resource: Resource | None = None,  # defaults to config.resource
     scope: InstrumentationScope | None = None,
 ) -> ExportOutcome: ...
 ```
@@ -146,9 +147,7 @@ The raw form takes a fully built envelope for callers that need multiple
 resources or scopes in one request:
 
 ```python
-async def export_resource_metrics(
-    self, data: Sequence[ResourceMetrics]
-) -> ExportOutcome: ...
+async def export_resource_metrics(self, data: Sequence[ResourceMetrics]) -> ExportOutcome: ...
 ```
 
 `export_logs`/`export_resource_logs` and `export_traces`/`export_resource_spans`
@@ -247,9 +246,12 @@ single flush task, exposed as an async context manager:
 
 ```python
 async with BatchProcessor(
-    client, max_batch=512, flush_interval=5.0, max_queue=2048,
+    client,
+    max_batch=512,
+    flush_interval=5.0,
+    max_queue=2048,
 ) as proc:
-    proc.submit_metrics([...])   # non-blocking; returns False if dropped
+    proc.submit_metrics([...])  # non-blocking; returns False if dropped
 ```
 
 - Flush triggers: batch size reached, interval elapsed, or explicit

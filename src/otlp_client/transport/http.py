@@ -19,9 +19,7 @@ from otlp_client.signals import SignalKind
 def _build_ssl_context(config: OTLPConfig) -> ssl.SSLContext | None:
     """Build the TLS context. Blocking: only call via asyncio.to_thread."""
     if not (
-        config.certificate_file
-        or config.client_certificate_file
-        or config.insecure_skip_verify
+        config.certificate_file or config.client_certificate_file or config.insecure_skip_verify
     ):
         return None
     context = ssl.create_default_context(cafile=config.certificate_file)

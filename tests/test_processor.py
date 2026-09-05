@@ -86,9 +86,7 @@ async def test_consecutive_failures_reset_after_a_success() -> None:
 
 async def test_reaching_max_batch_triggers_a_background_flush() -> None:
     transport = FakeTransport()
-    async with BatchProcessor(
-        make_client(transport), max_batch=2, flush_interval=3600.0
-    ) as proc:
+    async with BatchProcessor(make_client(transport), max_batch=2, flush_interval=3600.0) as proc:
         proc.submit_metrics(one(1))
         proc.submit_metrics(one(2))
         async with asyncio.timeout(5):
@@ -143,9 +141,7 @@ async def test_background_loop_survives_a_non_otlp_error_and_keeps_flushing() ->
     still has to reach the collector.
     """
     transport = FakeTransport()
-    async with BatchProcessor(
-        make_client(transport), max_batch=1, flush_interval=3600.0
-    ) as proc:
+    async with BatchProcessor(make_client(transport), max_batch=1, flush_interval=3600.0) as proc:
         proc.submit_metrics([gauge("t", True, time_unix_nano=1)])
         async with asyncio.timeout(5):
             await proc.flushed.wait()
@@ -190,9 +186,7 @@ async def test_flushed_event_reflects_a_real_subsequent_flush() -> None:
     actually block until that next flush happens.
     """
     transport = FakeTransport()
-    async with BatchProcessor(
-        make_client(transport), max_batch=1, flush_interval=3600.0
-    ) as proc:
+    async with BatchProcessor(make_client(transport), max_batch=1, flush_interval=3600.0) as proc:
         proc.submit_metrics(one(1))
         async with asyncio.timeout(5):
             await proc.flushed.wait()

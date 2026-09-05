@@ -86,8 +86,11 @@ async def test_logs_and_traces_use_their_own_methods(grpc_server: ServerFactory)
 
 @pytest.mark.parametrize(
     "code",
-    [grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED,
-     grpc.StatusCode.RESOURCE_EXHAUSTED],
+    [
+        grpc.StatusCode.UNAVAILABLE,
+        grpc.StatusCode.DEADLINE_EXCEEDED,
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+    ],
 )
 async def test_transient_status_codes_are_retryable(
     grpc_server: ServerFactory, code: grpc.StatusCode
@@ -99,8 +102,11 @@ async def test_transient_status_codes_are_retryable(
 
 @pytest.mark.parametrize(
     "code",
-    [grpc.StatusCode.INVALID_ARGUMENT, grpc.StatusCode.PERMISSION_DENIED,
-     grpc.StatusCode.UNIMPLEMENTED],
+    [
+        grpc.StatusCode.INVALID_ARGUMENT,
+        grpc.StatusCode.PERMISSION_DENIED,
+        grpc.StatusCode.UNIMPLEMENTED,
+    ],
 )
 async def test_other_status_codes_are_permanent(
     grpc_server: ServerFactory, code: grpc.StatusCode

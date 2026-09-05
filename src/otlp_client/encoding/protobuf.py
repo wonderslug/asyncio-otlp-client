@@ -18,8 +18,7 @@ from otlp_client.outcomes import PartialSuccess
 from otlp_client.signals import SignalKind
 
 _MISSING = (
-    "the protobuf encoder needs the optional extra: "
-    "pip install 'asyncio-otlp-client[protobuf]'"
+    "the protobuf encoder needs the optional extra: pip install 'asyncio-otlp-client[protobuf]'"
 )
 
 
@@ -103,9 +102,7 @@ def _any_value(value: AnyValue) -> Any:
     if isinstance(value, bytes):
         return common_pb2.AnyValue(bytes_value=value)
     if isinstance(value, Mapping):
-        return common_pb2.AnyValue(
-            kvlist_value=common_pb2.KeyValueList(values=_key_values(value))
-        )
+        return common_pb2.AnyValue(kvlist_value=common_pb2.KeyValueList(values=_key_values(value)))
     if isinstance(value, Sequence):
         return common_pb2.AnyValue(
             array_value=common_pb2.ArrayValue(values=[_any_value(v) for v in value])
@@ -117,8 +114,7 @@ def _key_values(attributes: Mapping[str, AnyValue]) -> list[Any]:
     from opentelemetry.proto.common.v1 import common_pb2
 
     return [
-        common_pb2.KeyValue(key=key, value=_any_value(value))
-        for key, value in attributes.items()
+        common_pb2.KeyValue(key=key, value=_any_value(value)) for key, value in attributes.items()
     ]
 
 

@@ -121,9 +121,7 @@ class BatchProcessor:
         """Queue spans. Returns False if anything was dropped or we are closed."""
         return self._submit(SignalKind.TRACES, spans)
 
-    async def _export_batch(
-        self, kind: SignalKind, batch: Sequence[Any]
-    ) -> PartialSuccess | None:
+    async def _export_batch(self, kind: SignalKind, batch: Sequence[Any]) -> PartialSuccess | None:
         """Dispatch one drained batch to the right client method."""
         if kind is SignalKind.METRICS:
             result = await self._client.export_metrics(
@@ -231,7 +229,5 @@ class BatchProcessor:
                 # and _run() both guard their own errors), but tolerate any
                 # other way it might have died so __aexit__ keeps its own
                 # never-raises contract.
-                _LOGGER.debug(
-                    "BatchProcessor background task ended with an error: %s", task_exc
-                )
+                _LOGGER.debug("BatchProcessor background task ended with an error: %s", task_exc)
         await self.flush()

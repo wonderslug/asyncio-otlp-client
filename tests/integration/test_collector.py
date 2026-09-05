@@ -52,10 +52,17 @@ async def export_all(config: OTLPConfig, marker: str) -> None:
             Success,
         )
         assert isinstance(
-            await client.export_traces([
-                span(f"span-{marker}", trace_id=TRACE_ID, span_id=SPAN_ID,
-                     start_time_unix_nano=1, end_time_unix_nano=2)
-            ]),
+            await client.export_traces(
+                [
+                    span(
+                        f"span-{marker}",
+                        trace_id=TRACE_ID,
+                        span_id=SPAN_ID,
+                        start_time_unix_nano=1,
+                        end_time_unix_nano=2,
+                    )
+                ]
+            ),
             Success,
         )
         await client.aclose()

@@ -150,9 +150,7 @@ spans = st.builds(
         st.builds(SpanEvent, time_unix_nano=u64, name=text, attributes=attributes), max_size=2
     ),
     links=st.lists(span_links, max_size=2),
-    status=st.one_of(
-        st.none(), st.builds(Status, code=st.sampled_from(StatusCode), message=text)
-    ),
+    status=st.one_of(st.none(), st.builds(Status, code=st.sampled_from(StatusCode), message=text)),
 )
 
 resource_spans = st.builds(

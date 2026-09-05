@@ -10,8 +10,13 @@ from otlp_client.model.metrics import (
 
 
 def test_gauge_helper_builds_single_point_metric() -> None:
-    m = gauge("home.temperature", 21.5, unit="Cel",
-              attributes={"entity_id": "sensor.living_room"}, time_unix_nano=1700000000000000000)
+    m = gauge(
+        "home.temperature",
+        21.5,
+        unit="Cel",
+        attributes={"entity_id": "sensor.living_room"},
+        time_unix_nano=1700000000000000000,
+    )
     assert isinstance(m, Metric)
     assert m.name == "home.temperature"
     assert m.unit == "Cel"

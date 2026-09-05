@@ -28,8 +28,14 @@ def test_log_record_helper_defaults_observed_time_to_time() -> None:
 async def test_export_logs_envelope_and_field_encoding() -> None:
     transport = FakeTransport()
     result = await make_client(transport).export_logs(
-        [log_record("hello", time_unix_nano=7, severity=SeverityNumber.WARN,
-                    attributes={"logger": "hass.core"})]
+        [
+            log_record(
+                "hello",
+                time_unix_nano=7,
+                severity=SeverityNumber.WARN,
+                attributes={"logger": "hass.core"},
+            )
+        ]
     )
     assert isinstance(result, Success)
     kind, payload = transport.sent[0]
@@ -43,9 +49,7 @@ async def test_export_logs_envelope_and_field_encoding() -> None:
     assert record["severityNumber"] == 13
     assert record["severityText"] == "WARN"
     assert record["body"] == {"stringValue": "hello"}
-    assert record["attributes"] == [
-        {"key": "logger", "value": {"stringValue": "hass.core"}}
-    ]
+    assert record["attributes"] == [{"key": "logger", "value": {"stringValue": "hass.core"}}]
 
 
 async def test_severity_number_is_an_integer_not_a_name() -> None:
@@ -60,11 +64,16 @@ async def test_severity_number_is_an_integer_not_a_name() -> None:
 
 async def test_trace_and_span_ids_are_hex_not_base64() -> None:
     transport = FakeTransport()
-    await make_client(transport).export_logs([
-        log_record("x", time_unix_nano=1,
-                   trace_id=bytes.fromhex("0102030405060708090a0b0c0d0e0f10"),
-                   span_id=bytes.fromhex("1112131415161718"))
-    ])
+    await make_client(transport).export_logs(
+        [
+            log_record(
+                "x",
+                time_unix_nano=1,
+                trace_id=bytes.fromhex("0102030405060708090a0b0c0d0e0f10"),
+                span_id=bytes.fromhex("1112131415161718"),
+            )
+        ]
+    )
     record = json.loads(transport.sent[0][1])["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0]
     assert record["traceId"] == "0102030405060708090a0b0c0d0e0f10"
     assert record["spanId"] == "1112131415161718"
@@ -76,10 +85,14 @@ async def test_structured_body_is_encoded_as_any_value() -> None:
         [log_record({"event": "state_changed", "count": 3}, time_unix_nano=1)]
     )
     record = json.loads(transport.sent[0][1])["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0]
-    assert record["body"] == {"kvlistValue": {"values": [
-        {"key": "event", "value": {"stringValue": "state_changed"}},
-        {"key": "count", "value": {"intValue": "3"}},
-    ]}}
+    assert record["body"] == {
+        "kvlistValue": {
+            "values": [
+                {"key": "event", "value": {"stringValue": "state_changed"}},
+                {"key": "count", "value": {"intValue": "3"}},
+            ]
+        }
+    }
 
 
 async def test_processor_queues_and_flushes_logs() -> None:

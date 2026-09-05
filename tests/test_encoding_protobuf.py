@@ -27,10 +27,19 @@ def test_content_type() -> None:
 
 
 def test_metrics_round_trip_through_the_real_proto() -> None:
-    payload = build_protobuf_encoder().encode(SignalKind.METRICS, [
-        ResourceMetrics(resource=RESOURCE, scope_metrics=[ScopeMetrics(
-            scope=SCOPE, metrics=[gauge("t", 21.5, unit="Cel", time_unix_nano=7)])])
-    ])
+    payload = build_protobuf_encoder().encode(
+        SignalKind.METRICS,
+        [
+            ResourceMetrics(
+                resource=RESOURCE,
+                scope_metrics=[
+                    ScopeMetrics(
+                        scope=SCOPE, metrics=[gauge("t", 21.5, unit="Cel", time_unix_nano=7)]
+                    )
+                ],
+            )
+        ],
+    )
     request = ExportMetricsServiceRequest.FromString(payload)
     (rm,) = request.resource_metrics
     assert rm.resource.attributes[0].key == "service.name"
@@ -43,26 +52,54 @@ def test_metrics_round_trip_through_the_real_proto() -> None:
 
 
 def test_integer_sum_uses_as_int_and_carries_temporality() -> None:
-    payload = build_protobuf_encoder().encode(SignalKind.METRICS, [
-        ResourceMetrics(resource=RESOURCE, scope_metrics=[ScopeMetrics(
-            scope=SCOPE, metrics=[sum_("e", 42, time_unix_nano=1)])])
-    ])
-    metric = ExportMetricsServiceRequest.FromString(payload).resource_metrics[0]\
-        .scope_metrics[0].metrics[0]
+    payload = build_protobuf_encoder().encode(
+        SignalKind.METRICS,
+        [
+            ResourceMetrics(
+                resource=RESOURCE,
+                scope_metrics=[
+                    ScopeMetrics(scope=SCOPE, metrics=[sum_("e", 42, time_unix_nano=1)])
+                ],
+            )
+        ],
+    )
+    metric = (
+        ExportMetricsServiceRequest.FromString(payload)
+        .resource_metrics[0]
+        .scope_metrics[0]
+        .metrics[0]
+    )
     assert metric.sum.data_points[0].as_int == 42
     assert metric.sum.is_monotonic is True
     assert metric.sum.aggregation_temporality == 2
 
 
 def test_logs_round_trip() -> None:
-    payload = build_protobuf_encoder().encode(SignalKind.LOGS, [
-        ResourceLogs(resource=RESOURCE, scope_logs=[ScopeLogs(
-            scope=SCOPE,
-            log_records=[log_record("hello", time_unix_nano=7, severity=SeverityNumber.WARN,
-                                    trace_id=TRACE_ID, span_id=SPAN_ID)])])
-    ])
-    record = ExportLogsServiceRequest.FromString(payload).resource_logs[0]\
-        .scope_logs[0].log_records[0]
+    payload = build_protobuf_encoder().encode(
+        SignalKind.LOGS,
+        [
+            ResourceLogs(
+                resource=RESOURCE,
+                scope_logs=[
+                    ScopeLogs(
+                        scope=SCOPE,
+                        log_records=[
+                            log_record(
+                                "hello",
+                                time_unix_nano=7,
+                                severity=SeverityNumber.WARN,
+                                trace_id=TRACE_ID,
+                                span_id=SPAN_ID,
+                            )
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+    record = (
+        ExportLogsServiceRequest.FromString(payload).resource_logs[0].scope_logs[0].log_records[0]
+    )
     assert record.body.string_value == "hello"
     assert record.severity_number == 13
     assert record.trace_id == TRACE_ID
@@ -70,14 +107,31 @@ def test_logs_round_trip() -> None:
 
 
 def test_traces_round_trip() -> None:
-    payload = build_protobuf_encoder().encode(SignalKind.TRACES, [
-        ResourceSpans(resource=RESOURCE, scope_spans=[ScopeSpans(
-            scope=SCOPE,
-            spans=[span("s", trace_id=TRACE_ID, span_id=SPAN_ID,
-                        start_time_unix_nano=1, end_time_unix_nano=2)])])
-    ])
-    pb_span = ExportTraceServiceRequest.FromString(payload).resource_spans[0]\
-        .scope_spans[0].spans[0]
+    payload = build_protobuf_encoder().encode(
+        SignalKind.TRACES,
+        [
+            ResourceSpans(
+                resource=RESOURCE,
+                scope_spans=[
+                    ScopeSpans(
+                        scope=SCOPE,
+                        spans=[
+                            span(
+                                "s",
+                                trace_id=TRACE_ID,
+                                span_id=SPAN_ID,
+                                start_time_unix_nano=1,
+                                end_time_unix_nano=2,
+                            )
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+    pb_span = (
+        ExportTraceServiceRequest.FromString(payload).resource_spans[0].scope_spans[0].spans[0]
+    )
     assert pb_span.name == "s"
     assert pb_span.trace_id == TRACE_ID
     assert pb_span.end_time_unix_nano == 2
@@ -97,30 +151,49 @@ def test_default_status_is_omitted_like_the_json_encoder() -> None:
         end_time_unix_nano=2,
         status=Status(),
     )
-    payload = build_protobuf_encoder().encode(SignalKind.TRACES, [
-        ResourceSpans(resource=RESOURCE, scope_spans=[ScopeSpans(scope=SCOPE, spans=[item])])
-    ])
-    pb_span = ExportTraceServiceRequest.FromString(payload).resource_spans[0]\
-        .scope_spans[0].spans[0]
+    payload = build_protobuf_encoder().encode(
+        SignalKind.TRACES,
+        [ResourceSpans(resource=RESOURCE, scope_spans=[ScopeSpans(scope=SCOPE, spans=[item])])],
+    )
+    pb_span = (
+        ExportTraceServiceRequest.FromString(payload).resource_spans[0].scope_spans[0].spans[0]
+    )
     assert pb_span.HasField("status") is False
 
 
 def test_default_resource_is_omitted_like_the_json_encoder() -> None:
     # OTLPConfig.resource defaults to None, and OTLPClient substitutes a bare
     # Resource() in that case, so this is the common path, not a corner case.
-    payload = build_protobuf_encoder().encode(SignalKind.METRICS, [
-        ResourceMetrics(resource=Resource(), scope_metrics=[ScopeMetrics(
-            scope=SCOPE, metrics=[gauge("t", 1.0, time_unix_nano=1)])])
-    ])
+    payload = build_protobuf_encoder().encode(
+        SignalKind.METRICS,
+        [
+            ResourceMetrics(
+                resource=Resource(),
+                scope_metrics=[
+                    ScopeMetrics(scope=SCOPE, metrics=[gauge("t", 1.0, time_unix_nano=1)])
+                ],
+            )
+        ],
+    )
     rm = ExportMetricsServiceRequest.FromString(payload).resource_metrics[0]
     assert rm.HasField("resource") is False
 
 
 def test_default_scope_is_omitted_like_the_json_encoder() -> None:
-    payload = build_protobuf_encoder().encode(SignalKind.METRICS, [
-        ResourceMetrics(resource=RESOURCE, scope_metrics=[ScopeMetrics(
-            scope=InstrumentationScope(name=""), metrics=[gauge("t", 1.0, time_unix_nano=1)])])
-    ])
+    payload = build_protobuf_encoder().encode(
+        SignalKind.METRICS,
+        [
+            ResourceMetrics(
+                resource=RESOURCE,
+                scope_metrics=[
+                    ScopeMetrics(
+                        scope=InstrumentationScope(name=""),
+                        metrics=[gauge("t", 1.0, time_unix_nano=1)],
+                    )
+                ],
+            )
+        ],
+    )
     sm = ExportMetricsServiceRequest.FromString(payload).resource_metrics[0].scope_metrics[0]
     assert sm.HasField("scope") is False
 
@@ -148,24 +221,48 @@ def _assert_json_and_protobuf_encoders_agree(envelope: list[ResourceMetrics]) ->
 
 
 def test_encoders_agree_on_empty_resource_with_a_real_scope() -> None:
-    _assert_json_and_protobuf_encoders_agree([
-        ResourceMetrics(resource=Resource(), scope_metrics=[ScopeMetrics(
-            scope=SCOPE, metrics=[gauge("t", 1.0, time_unix_nano=1)])])
-    ])
+    _assert_json_and_protobuf_encoders_agree(
+        [
+            ResourceMetrics(
+                resource=Resource(),
+                scope_metrics=[
+                    ScopeMetrics(scope=SCOPE, metrics=[gauge("t", 1.0, time_unix_nano=1)])
+                ],
+            )
+        ]
+    )
 
 
 def test_encoders_agree_on_a_real_resource_with_an_empty_scope() -> None:
-    _assert_json_and_protobuf_encoders_agree([
-        ResourceMetrics(resource=RESOURCE, scope_metrics=[ScopeMetrics(
-            scope=InstrumentationScope(name=""), metrics=[gauge("t", 1.0, time_unix_nano=1)])])
-    ])
+    _assert_json_and_protobuf_encoders_agree(
+        [
+            ResourceMetrics(
+                resource=RESOURCE,
+                scope_metrics=[
+                    ScopeMetrics(
+                        scope=InstrumentationScope(name=""),
+                        metrics=[gauge("t", 1.0, time_unix_nano=1)],
+                    )
+                ],
+            )
+        ]
+    )
 
 
 def test_encoders_agree_when_both_resource_and_scope_are_empty() -> None:
-    _assert_json_and_protobuf_encoders_agree([
-        ResourceMetrics(resource=Resource(), scope_metrics=[ScopeMetrics(
-            scope=InstrumentationScope(name=""), metrics=[gauge("t", 1.0, time_unix_nano=1)])])
-    ])
+    _assert_json_and_protobuf_encoders_agree(
+        [
+            ResourceMetrics(
+                resource=Resource(),
+                scope_metrics=[
+                    ScopeMetrics(
+                        scope=InstrumentationScope(name=""),
+                        metrics=[gauge("t", 1.0, time_unix_nano=1)],
+                    )
+                ],
+            )
+        ]
+    )
 
 
 def test_decode_partial_success() -> None:
@@ -256,10 +353,7 @@ def test_the_module_level_import_checker_catches_a_try_wrapped_import() -> None:
     # module-import time even though it never appears as a top-level
     # Import/ImportFrom node, which is exactly the gap being closed here.
     snippet = (
-        "try:\n"
-        "    import opentelemetry.proto.common.v1.common_pb2\n"
-        "except ImportError:\n"
-        "    pass\n"
+        "try:\n    import opentelemetry.proto.common.v1.common_pb2\nexcept ImportError:\n    pass\n"
     )
     assert _imports_opentelemetry_at_module_level(snippet)
 

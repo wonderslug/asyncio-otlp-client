@@ -158,9 +158,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
-type AnyValue = (
-    str | bool | int | float | bytes | Sequence["AnyValue"] | Mapping[str, "AnyValue"]
-)
+type AnyValue = str | bool | int | float | bytes | Sequence["AnyValue"] | Mapping[str, "AnyValue"]
 
 _EMPTY: Mapping[str, AnyValue] = MappingProxyType({})
 
@@ -223,8 +221,13 @@ from otlp_client.model.metrics import (
 
 
 def test_gauge_helper_builds_single_point_metric():
-    m = gauge("home.temperature", 21.5, unit="Cel",
-              attributes={"entity_id": "sensor.living_room"}, time_unix_nano=1700000000000000000)
+    m = gauge(
+        "home.temperature",
+        21.5,
+        unit="Cel",
+        attributes={"entity_id": "sensor.living_room"},
+        time_unix_nano=1700000000000000000,
+    )
     assert isinstance(m, Metric)
     assert m.name == "home.temperature"
     assert m.unit == "Cel"
@@ -372,9 +375,7 @@ def sum_(
         attributes=attributes or _EMPTY,
         start_time_unix_nano=start_time_unix_nano,
     )
-    data = Sum(
-        data_points=(point,), aggregation_temporality=temporality, is_monotonic=is_monotonic
-    )
+    data = Sum(data_points=(point,), aggregation_temporality=temporality, is_monotonic=is_monotonic)
     return Metric(name=name, data=data, unit=unit, description=description)
 ```
 
@@ -643,53 +644,65 @@ from otlp_client.signals import SignalKind
 
 
 def test_reads_base_endpoint_and_protocol():
-    cfg = OTLPConfig.from_env({
-        "OTEL_EXPORTER_OTLP_ENDPOINT": "https://collector.local:4318",
-        "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
-    })
+    cfg = OTLPConfig.from_env(
+        {
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "https://collector.local:4318",
+            "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+        }
+    )
     assert cfg.endpoint == "https://collector.local:4318"
     assert cfg.protocol is OTLPProtocol.HTTP_PROTOBUF
 
 
 def test_per_signal_endpoint_override():
-    cfg = OTLPConfig.from_env({
-        "OTEL_EXPORTER_OTLP_ENDPOINT": "https://base.local:4318",
-        "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "https://metrics.local/ingest",
-    })
+    cfg = OTLPConfig.from_env(
+        {
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "https://base.local:4318",
+            "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": "https://metrics.local/ingest",
+        }
+    )
     assert cfg.endpoint_for(SignalKind.METRICS) == "https://metrics.local/ingest"
     assert cfg.endpoint_for(SignalKind.LOGS) == "https://base.local:4318/v1/logs"
 
 
 def test_headers_are_comma_separated_key_value_pairs():
-    cfg = OTLPConfig.from_env({
-        "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
-        "OTEL_EXPORTER_OTLP_HEADERS": "api-key=secret,x-tenant=home",
-    })
+    cfg = OTLPConfig.from_env(
+        {
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_EXPORTER_OTLP_HEADERS": "api-key=secret,x-tenant=home",
+        }
+    )
     assert cfg.headers == {"api-key": "secret", "x-tenant": "home"}
 
 
 def test_header_values_are_url_decoded_and_whitespace_stripped():
-    cfg = OTLPConfig.from_env({
-        "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
-        "OTEL_EXPORTER_OTLP_HEADERS": " authorization = Bearer%20abc ",
-    })
+    cfg = OTLPConfig.from_env(
+        {
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_EXPORTER_OTLP_HEADERS": " authorization = Bearer%20abc ",
+        }
+    )
     assert cfg.headers == {"authorization": "Bearer abc"}
 
 
 def test_timeout_env_var_is_milliseconds():
-    cfg = OTLPConfig.from_env({
-        "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
-        "OTEL_EXPORTER_OTLP_TIMEOUT": "2500",
-    })
+    cfg = OTLPConfig.from_env(
+        {
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_EXPORTER_OTLP_TIMEOUT": "2500",
+        }
+    )
     assert cfg.timeout == 2.5
 
 
 def test_compression_and_certificate():
-    cfg = OTLPConfig.from_env({
-        "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
-        "OTEL_EXPORTER_OTLP_COMPRESSION": "gzip",
-        "OTEL_EXPORTER_OTLP_CERTIFICATE": "/etc/ssl/ca.pem",
-    })
+    cfg = OTLPConfig.from_env(
+        {
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318",
+            "OTEL_EXPORTER_OTLP_COMPRESSION": "gzip",
+            "OTEL_EXPORTER_OTLP_CERTIFICATE": "/etc/ssl/ca.pem",
+        }
+    )
     assert cfg.compression is Compression.GZIP
     assert cfg.certificate_file == "/etc/ssl/ca.pem"
 
@@ -1079,13 +1092,17 @@ from otlp_client.signals import SignalKind
 def encode_one(metric):
     payload = JSONEncoder().encode(
         SignalKind.METRICS,
-        [ResourceMetrics(
-            resource=Resource(attributes={"service.name": "hass"}),
-            scope_metrics=[ScopeMetrics(
-                scope=InstrumentationScope(name="otlp_client", version="0.1.0"),
-                metrics=[metric],
-            )],
-        )],
+        [
+            ResourceMetrics(
+                resource=Resource(attributes={"service.name": "hass"}),
+                scope_metrics=[
+                    ScopeMetrics(
+                        scope=InstrumentationScope(name="otlp_client", version="0.1.0"),
+                        metrics=[metric],
+                    )
+                ],
+            )
+        ],
     )
     return json.loads(payload)
 
@@ -1126,11 +1143,20 @@ def test_sum_enum_is_an_integer_not_a_name():
 
 def test_histogram_count_and_bucket_counts_are_strings():
     point = HistogramDataPoint(
-        time_unix_nano=9, count=3, sum=6.0,
-        bucket_counts=[1, 2], explicit_bounds=[10.0],
+        time_unix_nano=9,
+        count=3,
+        sum=6.0,
+        bucket_counts=[1, 2],
+        explicit_bounds=[10.0],
     )
-    doc = encode_one(Metric(name="h", data=Histogram(
-        data_points=[point], aggregation_temporality=AggregationTemporality.DELTA)))
+    doc = encode_one(
+        Metric(
+            name="h",
+            data=Histogram(
+                data_points=[point], aggregation_temporality=AggregationTemporality.DELTA
+            ),
+        )
+    )
     hist = doc["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]["histogram"]
     assert hist["aggregationTemporality"] == 1
     (p,) = hist["dataPoints"]
@@ -1248,9 +1274,7 @@ def _encode_number_point(point: NumberDataPoint) -> dict[str, Any]:
     if isinstance(point.value, bool):
         raise TypeError("metric data point values must be int or float, not bool")
     value_field = (
-        {"asInt": u64(point.value)}
-        if isinstance(point.value, int)
-        else {"asDouble": point.value}
+        {"asInt": u64(point.value)} if isinstance(point.value, int) else {"asDouble": point.value}
     )
     return omit_empty(
         {
@@ -1579,8 +1603,9 @@ def scripted(*outcomes: ExportOutcome):
 async def test_success_on_first_attempt_does_not_sleep():
     clock = FakeClock()
     op, calls = scripted(Success())
-    result = await with_retry(op, POLICY, sleep=clock.sleep, monotonic=clock.monotonic,
-                              jitter=lambda: 1.0)
+    result = await with_retry(
+        op, POLICY, sleep=clock.sleep, monotonic=clock.monotonic, jitter=lambda: 1.0
+    )
     assert isinstance(result, Success)
     assert len(calls) == 1
     assert clock.slept == []
@@ -1589,8 +1614,9 @@ async def test_success_on_first_attempt_does_not_sleep():
 async def test_retries_until_success_with_exponential_backoff():
     clock = FakeClock()
     op, calls = scripted(Retryable(status=503), Retryable(status=503), Success())
-    result = await with_retry(op, POLICY, sleep=clock.sleep, monotonic=clock.monotonic,
-                              jitter=lambda: 1.0)
+    result = await with_retry(
+        op, POLICY, sleep=clock.sleep, monotonic=clock.monotonic, jitter=lambda: 1.0
+    )
     assert isinstance(result, Success)
     assert len(calls) == 3
     assert clock.slept == [1.0, 2.0]
@@ -1599,34 +1625,33 @@ async def test_retries_until_success_with_exponential_backoff():
 async def test_full_jitter_scales_each_delay():
     clock = FakeClock()
     op, _ = scripted(Retryable(), Retryable(), Success())
-    await with_retry(op, POLICY, sleep=clock.sleep, monotonic=clock.monotonic,
-                     jitter=lambda: 0.5)
+    await with_retry(op, POLICY, sleep=clock.sleep, monotonic=clock.monotonic, jitter=lambda: 0.5)
     assert clock.slept == [0.5, 1.0]
 
 
 async def test_backoff_is_capped_at_max_backoff():
     clock = FakeClock()
-    policy = RetryPolicy(initial_backoff=10.0, max_backoff=15.0, multiplier=10.0,
-                         max_elapsed=1000.0)
+    policy = RetryPolicy(
+        initial_backoff=10.0, max_backoff=15.0, multiplier=10.0, max_elapsed=1000.0
+    )
     op, _ = scripted(Retryable(), Retryable(), Retryable(), Success())
-    await with_retry(op, policy, sleep=clock.sleep, monotonic=clock.monotonic,
-                     jitter=lambda: 1.0)
+    await with_retry(op, policy, sleep=clock.sleep, monotonic=clock.monotonic, jitter=lambda: 1.0)
     assert clock.slept == [10.0, 15.0, 15.0]
 
 
 async def test_retry_after_overrides_computed_backoff():
     clock = FakeClock()
     op, _ = scripted(Retryable(status=429, retry_after=7.0), Success())
-    await with_retry(op, POLICY, sleep=clock.sleep, monotonic=clock.monotonic,
-                     jitter=lambda: 1.0)
+    await with_retry(op, POLICY, sleep=clock.sleep, monotonic=clock.monotonic, jitter=lambda: 1.0)
     assert clock.slept == [7.0]
 
 
 async def test_permanent_is_returned_immediately():
     clock = FakeClock()
     op, calls = scripted(Permanent(status=400, message="bad"))
-    result = await with_retry(op, POLICY, sleep=clock.sleep, monotonic=clock.monotonic,
-                              jitter=lambda: 1.0)
+    result = await with_retry(
+        op, POLICY, sleep=clock.sleep, monotonic=clock.monotonic, jitter=lambda: 1.0
+    )
     assert isinstance(result, Permanent)
     assert len(calls) == 1
 
@@ -1634,8 +1659,9 @@ async def test_permanent_is_returned_immediately():
 async def test_partial_success_is_never_retried():
     clock = FakeClock()
     op, calls = scripted(PartialSuccess(rejected=3), Success())
-    result = await with_retry(op, POLICY, sleep=clock.sleep, monotonic=clock.monotonic,
-                              jitter=lambda: 1.0)
+    result = await with_retry(
+        op, POLICY, sleep=clock.sleep, monotonic=clock.monotonic, jitter=lambda: 1.0
+    )
     assert isinstance(result, PartialSuccess)
     assert len(calls) == 1
     assert clock.slept == []
@@ -1645,8 +1671,9 @@ async def test_budget_exhaustion_returns_the_last_retryable():
     clock = FakeClock()
     policy = RetryPolicy(initial_backoff=1.0, max_backoff=1.0, multiplier=1.0, max_elapsed=3.0)
     op, calls = scripted(Retryable(status=503, message="down"))
-    result = await with_retry(op, policy, sleep=clock.sleep, monotonic=clock.monotonic,
-                              jitter=lambda: 1.0)
+    result = await with_retry(
+        op, policy, sleep=clock.sleep, monotonic=clock.monotonic, jitter=lambda: 1.0
+    )
     assert isinstance(result, Retryable)
     assert result.message == "down"
     assert clock.monotonic() <= 3.0 + 1.0
@@ -1675,8 +1702,13 @@ def test_parse_retry_after_garbage_returns_none():
 
 
 def test_policy_from_config_uses_config_values():
-    cfg = OTLPConfig(endpoint="http://localhost:4318", initial_backoff=2.0, max_backoff=8.0,
-                     backoff_multiplier=3.0, max_elapsed=40.0)
+    cfg = OTLPConfig(
+        endpoint="http://localhost:4318",
+        initial_backoff=2.0,
+        max_backoff=8.0,
+        backoff_multiplier=3.0,
+        max_elapsed=40.0,
+    )
     policy = RetryPolicy.from_config(cfg)
     assert (policy.initial_backoff, policy.max_backoff) == (2.0, 8.0)
     assert (policy.multiplier, policy.max_elapsed) == (3.0, 40.0)
@@ -1988,9 +2020,7 @@ from otlp_client.signals import SignalKind
 def _build_ssl_context(config: OTLPConfig) -> ssl.SSLContext | None:
     """Build the TLS context. Blocking: only call via asyncio.to_thread."""
     if not (
-        config.certificate_file
-        or config.client_certificate_file
-        or config.insecure_skip_verify
+        config.certificate_file or config.client_certificate_file or config.insecure_skip_verify
     ):
         return None
     context = ssl.create_default_context(cafile=config.certificate_file)
@@ -2180,10 +2210,12 @@ async def test_export_resource_metrics_passes_the_envelope_through():
     client = make_client(transport)
     envelope = ResourceMetrics(
         resource=Resource(attributes={"a": "b"}),
-        scope_metrics=[ScopeMetrics(
-            scope=InstrumentationScope(name="custom"),
-            metrics=[gauge("t", 1.0, time_unix_nano=1)],
-        )],
+        scope_metrics=[
+            ScopeMetrics(
+                scope=InstrumentationScope(name="custom"),
+                metrics=[gauge("t", 1.0, time_unix_nano=1)],
+            )
+        ],
     )
     await client.export_resource_metrics([envelope])
     doc = json.loads(transport.sent[0][1])
@@ -2353,8 +2385,9 @@ class OTLPClient:
             monotonic=self._monotonic,
         )
         if isinstance(outcome, Permanent):
-            raise OTLPPermanentError(f"collector rejected {kind} (status {outcome.status}): "
-                                     f"{outcome.message}")
+            raise OTLPPermanentError(
+                f"collector rejected {kind} (status {outcome.status}): {outcome.message}"
+            )
         if isinstance(outcome, Retryable):
             raise OTLPTransportError(f"could not deliver {kind} after retries: {outcome.message}")
         return outcome
@@ -2576,9 +2609,7 @@ async def test_consecutive_failures_reset_after_a_success():
 
 async def test_reaching_max_batch_triggers_a_background_flush():
     transport = FakeTransport()
-    async with BatchProcessor(
-        make_client(transport), max_batch=2, flush_interval=3600.0
-    ) as proc:
+    async with BatchProcessor(make_client(transport), max_batch=2, flush_interval=3600.0) as proc:
         proc.submit_metrics(one(1))
         proc.submit_metrics(one(2))
         async with asyncio.timeout(5):
@@ -2864,8 +2895,14 @@ def test_log_record_helper_defaults_observed_time_to_time():
 async def test_export_logs_envelope_and_field_encoding():
     transport = FakeTransport()
     result = await make_client(transport).export_logs(
-        [log_record("hello", time_unix_nano=7, severity=SeverityNumber.WARN,
-                    attributes={"logger": "hass.core"})]
+        [
+            log_record(
+                "hello",
+                time_unix_nano=7,
+                severity=SeverityNumber.WARN,
+                attributes={"logger": "hass.core"},
+            )
+        ]
     )
     assert isinstance(result, Success)
     kind, payload = transport.sent[0]
@@ -2879,9 +2916,7 @@ async def test_export_logs_envelope_and_field_encoding():
     assert record["severityNumber"] == 13
     assert record["severityText"] == "WARN"
     assert record["body"] == {"stringValue": "hello"}
-    assert record["attributes"] == [
-        {"key": "logger", "value": {"stringValue": "hass.core"}}
-    ]
+    assert record["attributes"] == [{"key": "logger", "value": {"stringValue": "hass.core"}}]
 
 
 async def test_severity_number_is_an_integer_not_a_name():
@@ -2896,11 +2931,16 @@ async def test_severity_number_is_an_integer_not_a_name():
 
 async def test_trace_and_span_ids_are_hex_not_base64():
     transport = FakeTransport()
-    await make_client(transport).export_logs([
-        log_record("x", time_unix_nano=1,
-                   trace_id=bytes.fromhex("0102030405060708090a0b0c0d0e0f10"),
-                   span_id=bytes.fromhex("1112131415161718"))
-    ])
+    await make_client(transport).export_logs(
+        [
+            log_record(
+                "x",
+                time_unix_nano=1,
+                trace_id=bytes.fromhex("0102030405060708090a0b0c0d0e0f10"),
+                span_id=bytes.fromhex("1112131415161718"),
+            )
+        ]
+    )
     record = json.loads(transport.sent[0][1])["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0]
     assert record["traceId"] == "0102030405060708090a0b0c0d0e0f10"
     assert record["spanId"] == "1112131415161718"
@@ -2912,10 +2952,14 @@ async def test_structured_body_is_encoded_as_any_value():
         [log_record({"event": "state_changed", "count": 3}, time_unix_nano=1)]
     )
     record = json.loads(transport.sent[0][1])["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0]
-    assert record["body"] == {"kvlistValue": {"values": [
-        {"key": "event", "value": {"stringValue": "state_changed"}},
-        {"key": "count", "value": {"intValue": "3"}},
-    ]}}
+    assert record["body"] == {
+        "kvlistValue": {
+            "values": [
+                {"key": "event", "value": {"stringValue": "state_changed"}},
+                {"key": "count", "value": {"intValue": "3"}},
+            ]
+        }
+    }
 
 
 async def test_processor_queues_and_flushes_logs():
@@ -3110,27 +3154,26 @@ from otlp_client.model.logs import LogRecord, ResourceLogs, ScopeLogs
 Add these methods to `OTLPClient`, after `export_resource_metrics`:
 
 ```python
-    async def export_logs(
-        self,
-        records: Sequence[LogRecord],
-        *,
-        resource: Resource | None = None,
-        scope: InstrumentationScope | None = None,
-    ) -> Success | PartialSuccess:
-        """Export log records, wrapping them in the client's resource and scope."""
-        if not records:
-            return Success()
-        envelope = ResourceLogs(
-            resource=resource or self.resource,
-            scope_logs=[ScopeLogs(scope=scope or self._scope, log_records=list(records))],
-        )
-        return await self.export_resource_logs([envelope])
+async def export_logs(
+    self,
+    records: Sequence[LogRecord],
+    *,
+    resource: Resource | None = None,
+    scope: InstrumentationScope | None = None,
+) -> Success | PartialSuccess:
+    """Export log records, wrapping them in the client's resource and scope."""
+    if not records:
+        return Success()
+    envelope = ResourceLogs(
+        resource=resource or self.resource,
+        scope_logs=[ScopeLogs(scope=scope or self._scope, log_records=list(records))],
+    )
+    return await self.export_resource_logs([envelope])
 
-    async def export_resource_logs(
-        self, data: Sequence[ResourceLogs]
-    ) -> Success | PartialSuccess:
-        """Export fully built log envelopes."""
-        return await self._export(SignalKind.LOGS, data)
+
+async def export_resource_logs(self, data: Sequence[ResourceLogs]) -> Success | PartialSuccess:
+    """Export fully built log envelopes."""
+    return await self._export(SignalKind.LOGS, data)
 ```
 
 - [ ] **Step 6: Extend the processor**
@@ -3233,11 +3276,20 @@ def only_span(payload: bytes) -> dict:
 
 async def test_export_traces_envelope_and_hex_ids():
     transport = FakeTransport()
-    result = await make_client(transport).export_traces([
-        span("handle_state_change", trace_id=TRACE_ID, span_id=SPAN_ID,
-             parent_span_id=PARENT_ID, start_time_unix_nano=100, end_time_unix_nano=200,
-             kind=SpanKind.INTERNAL, attributes={"entity_id": "light.kitchen"})
-    ])
+    result = await make_client(transport).export_traces(
+        [
+            span(
+                "handle_state_change",
+                trace_id=TRACE_ID,
+                span_id=SPAN_ID,
+                parent_span_id=PARENT_ID,
+                start_time_unix_nano=100,
+                end_time_unix_nano=200,
+                kind=SpanKind.INTERNAL,
+                attributes={"entity_id": "light.kitchen"},
+            )
+        ]
+    )
     assert isinstance(result, Success)
     kind, payload = transport.sent[0]
     assert kind is SignalKind.TRACES
@@ -3254,11 +3306,20 @@ async def test_export_traces_envelope_and_hex_ids():
 
 async def test_span_kind_and_status_code_are_integers():
     transport = FakeTransport()
-    await make_client(transport).export_traces([
-        span("call", trace_id=TRACE_ID, span_id=SPAN_ID, start_time_unix_nano=1,
-             end_time_unix_nano=2, kind=SpanKind.CLIENT,
-             status_code=StatusCode.ERROR, status_message="timeout")
-    ])
+    await make_client(transport).export_traces(
+        [
+            span(
+                "call",
+                trace_id=TRACE_ID,
+                span_id=SPAN_ID,
+                start_time_unix_nano=1,
+                end_time_unix_nano=2,
+                kind=SpanKind.CLIENT,
+                status_code=StatusCode.ERROR,
+                status_message="timeout",
+            )
+        ]
+    )
     s = only_span(transport.sent[0][1])
     assert s["kind"] == 3
     assert s["status"] == {"code": 2, "message": "timeout"}
@@ -3266,10 +3327,17 @@ async def test_span_kind_and_status_code_are_integers():
 
 async def test_root_span_omits_parent_span_id():
     transport = FakeTransport()
-    await make_client(transport).export_traces([
-        span("root", trace_id=TRACE_ID, span_id=SPAN_ID,
-             start_time_unix_nano=1, end_time_unix_nano=2)
-    ])
+    await make_client(transport).export_traces(
+        [
+            span(
+                "root",
+                trace_id=TRACE_ID,
+                span_id=SPAN_ID,
+                start_time_unix_nano=1,
+                end_time_unix_nano=2,
+            )
+        ]
+    )
     assert "parentSpanId" not in only_span(transport.sent[0][1])
 
 
@@ -3277,38 +3345,68 @@ async def test_events_and_links_are_encoded():
     from otlp_client.model.traces import SpanEvent, SpanLink
 
     transport = FakeTransport()
-    await make_client(transport).export_traces([
-        span("s", trace_id=TRACE_ID, span_id=SPAN_ID, start_time_unix_nano=1,
-             end_time_unix_nano=2,
-             events=[SpanEvent(time_unix_nano=5, name="retry", attributes={"n": 2})],
-             links=[SpanLink(trace_id=TRACE_ID, span_id=PARENT_ID)])
-    ])
+    await make_client(transport).export_traces(
+        [
+            span(
+                "s",
+                trace_id=TRACE_ID,
+                span_id=SPAN_ID,
+                start_time_unix_nano=1,
+                end_time_unix_nano=2,
+                events=[SpanEvent(time_unix_nano=5, name="retry", attributes={"n": 2})],
+                links=[SpanLink(trace_id=TRACE_ID, span_id=PARENT_ID)],
+            )
+        ]
+    )
     s = only_span(transport.sent[0][1])
-    assert s["events"] == [{
-        "timeUnixNano": "5", "name": "retry",
-        "attributes": [{"key": "n", "value": {"intValue": "2"}}],
-    }]
-    assert s["links"] == [{
-        "traceId": "0102030405060708090a0b0c0d0e0f10", "spanId": "2122232425262728",
-    }]
+    assert s["events"] == [
+        {
+            "timeUnixNano": "5",
+            "name": "retry",
+            "attributes": [{"key": "n", "value": {"intValue": "2"}}],
+        }
+    ]
+    assert s["links"] == [
+        {
+            "traceId": "0102030405060708090a0b0c0d0e0f10",
+            "spanId": "2122232425262728",
+        }
+    ]
 
 
 async def test_unset_status_is_omitted():
     transport = FakeTransport()
-    await make_client(transport).export_traces([
-        span("s", trace_id=TRACE_ID, span_id=SPAN_ID,
-             start_time_unix_nano=1, end_time_unix_nano=2)
-    ])
+    await make_client(transport).export_traces(
+        [
+            span(
+                "s",
+                trace_id=TRACE_ID,
+                span_id=SPAN_ID,
+                start_time_unix_nano=1,
+                end_time_unix_nano=2,
+            )
+        ]
+    )
     assert "status" not in only_span(transport.sent[0][1])
 
 
 async def test_processor_queues_and_flushes_traces():
     transport = FakeTransport()
     proc = BatchProcessor(make_client(transport), flush_interval=3600.0)
-    assert proc.submit_traces([
-        span("s", trace_id=TRACE_ID, span_id=SPAN_ID,
-             start_time_unix_nano=1, end_time_unix_nano=2)
-    ]) is True
+    assert (
+        proc.submit_traces(
+            [
+                span(
+                    "s",
+                    trace_id=TRACE_ID,
+                    span_id=SPAN_ID,
+                    start_time_unix_nano=1,
+                    end_time_unix_nano=2,
+                )
+            ]
+        )
+        is True
+    )
     await proc.flush()
     assert transport.sent[0][0] is SignalKind.TRACES
     assert proc.stats.exported == 1
@@ -3534,27 +3632,26 @@ from otlp_client.model.traces import ResourceSpans, ScopeSpans, Span
 Add these methods to `OTLPClient`, after `export_resource_logs`:
 
 ```python
-    async def export_traces(
-        self,
-        spans: Sequence[Span],
-        *,
-        resource: Resource | None = None,
-        scope: InstrumentationScope | None = None,
-    ) -> Success | PartialSuccess:
-        """Export spans, wrapping them in the client's resource and scope."""
-        if not spans:
-            return Success()
-        envelope = ResourceSpans(
-            resource=resource or self.resource,
-            scope_spans=[ScopeSpans(scope=scope or self._scope, spans=list(spans))],
-        )
-        return await self.export_resource_spans([envelope])
+async def export_traces(
+    self,
+    spans: Sequence[Span],
+    *,
+    resource: Resource | None = None,
+    scope: InstrumentationScope | None = None,
+) -> Success | PartialSuccess:
+    """Export spans, wrapping them in the client's resource and scope."""
+    if not spans:
+        return Success()
+    envelope = ResourceSpans(
+        resource=resource or self.resource,
+        scope_spans=[ScopeSpans(scope=scope or self._scope, spans=list(spans))],
+    )
+    return await self.export_resource_spans([envelope])
 
-    async def export_resource_spans(
-        self, data: Sequence[ResourceSpans]
-    ) -> Success | PartialSuccess:
-        """Export fully built span envelopes."""
-        return await self._export(SignalKind.TRACES, data)
+
+async def export_resource_spans(self, data: Sequence[ResourceSpans]) -> Success | PartialSuccess:
+    """Export fully built span envelopes."""
+    return await self._export(SignalKind.TRACES, data)
 ```
 
 - [ ] **Step 6: Extend the processor**
@@ -3665,10 +3762,19 @@ def test_content_type():
 
 
 def test_metrics_round_trip_through_the_real_proto():
-    payload = build_protobuf_encoder().encode(SignalKind.METRICS, [
-        ResourceMetrics(resource=RESOURCE, scope_metrics=[ScopeMetrics(
-            scope=SCOPE, metrics=[gauge("t", 21.5, unit="Cel", time_unix_nano=7)])])
-    ])
+    payload = build_protobuf_encoder().encode(
+        SignalKind.METRICS,
+        [
+            ResourceMetrics(
+                resource=RESOURCE,
+                scope_metrics=[
+                    ScopeMetrics(
+                        scope=SCOPE, metrics=[gauge("t", 21.5, unit="Cel", time_unix_nano=7)]
+                    )
+                ],
+            )
+        ],
+    )
     request = ExportMetricsServiceRequest.FromString(payload)
     (rm,) = request.resource_metrics
     assert rm.resource.attributes[0].key == "service.name"
@@ -3681,26 +3787,54 @@ def test_metrics_round_trip_through_the_real_proto():
 
 
 def test_integer_sum_uses_as_int_and_carries_temporality():
-    payload = build_protobuf_encoder().encode(SignalKind.METRICS, [
-        ResourceMetrics(resource=RESOURCE, scope_metrics=[ScopeMetrics(
-            scope=SCOPE, metrics=[sum_("e", 42, time_unix_nano=1)])])
-    ])
-    metric = ExportMetricsServiceRequest.FromString(payload).resource_metrics[0]\
-        .scope_metrics[0].metrics[0]
+    payload = build_protobuf_encoder().encode(
+        SignalKind.METRICS,
+        [
+            ResourceMetrics(
+                resource=RESOURCE,
+                scope_metrics=[
+                    ScopeMetrics(scope=SCOPE, metrics=[sum_("e", 42, time_unix_nano=1)])
+                ],
+            )
+        ],
+    )
+    metric = (
+        ExportMetricsServiceRequest.FromString(payload)
+        .resource_metrics[0]
+        .scope_metrics[0]
+        .metrics[0]
+    )
     assert metric.sum.data_points[0].as_int == 42
     assert metric.sum.is_monotonic is True
     assert metric.sum.aggregation_temporality == 2
 
 
 def test_logs_round_trip():
-    payload = build_protobuf_encoder().encode(SignalKind.LOGS, [
-        ResourceLogs(resource=RESOURCE, scope_logs=[ScopeLogs(
-            scope=SCOPE,
-            log_records=[log_record("hello", time_unix_nano=7, severity=SeverityNumber.WARN,
-                                    trace_id=TRACE_ID, span_id=SPAN_ID)])])
-    ])
-    record = ExportLogsServiceRequest.FromString(payload).resource_logs[0]\
-        .scope_logs[0].log_records[0]
+    payload = build_protobuf_encoder().encode(
+        SignalKind.LOGS,
+        [
+            ResourceLogs(
+                resource=RESOURCE,
+                scope_logs=[
+                    ScopeLogs(
+                        scope=SCOPE,
+                        log_records=[
+                            log_record(
+                                "hello",
+                                time_unix_nano=7,
+                                severity=SeverityNumber.WARN,
+                                trace_id=TRACE_ID,
+                                span_id=SPAN_ID,
+                            )
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+    record = (
+        ExportLogsServiceRequest.FromString(payload).resource_logs[0].scope_logs[0].log_records[0]
+    )
     assert record.body.string_value == "hello"
     assert record.severity_number == 13
     assert record.trace_id == TRACE_ID
@@ -3708,14 +3842,31 @@ def test_logs_round_trip():
 
 
 def test_traces_round_trip():
-    payload = build_protobuf_encoder().encode(SignalKind.TRACES, [
-        ResourceSpans(resource=RESOURCE, scope_spans=[ScopeSpans(
-            scope=SCOPE,
-            spans=[span("s", trace_id=TRACE_ID, span_id=SPAN_ID,
-                        start_time_unix_nano=1, end_time_unix_nano=2)])])
-    ])
-    pb_span = ExportTraceServiceRequest.FromString(payload).resource_spans[0]\
-        .scope_spans[0].spans[0]
+    payload = build_protobuf_encoder().encode(
+        SignalKind.TRACES,
+        [
+            ResourceSpans(
+                resource=RESOURCE,
+                scope_spans=[
+                    ScopeSpans(
+                        scope=SCOPE,
+                        spans=[
+                            span(
+                                "s",
+                                trace_id=TRACE_ID,
+                                span_id=SPAN_ID,
+                                start_time_unix_nano=1,
+                                end_time_unix_nano=2,
+                            )
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+    pb_span = (
+        ExportTraceServiceRequest.FromString(payload).resource_spans[0].scope_spans[0].spans[0]
+    )
     assert pb_span.name == "s"
     assert pb_span.trace_id == TRACE_ID
     assert pb_span.end_time_unix_nano == 2
@@ -3790,8 +3941,7 @@ from otlp_client.outcomes import PartialSuccess
 from otlp_client.signals import SignalKind
 
 _MISSING = (
-    "the protobuf encoder needs the optional extra: "
-    "pip install 'asyncio-otlp-client[protobuf]'"
+    "the protobuf encoder needs the optional extra: pip install 'asyncio-otlp-client[protobuf]'"
 )
 
 
@@ -3870,9 +4020,7 @@ def _any_value(value: AnyValue) -> Any:
     if isinstance(value, bytes):
         return common_pb2.AnyValue(bytes_value=value)
     if isinstance(value, Mapping):
-        return common_pb2.AnyValue(
-            kvlist_value=common_pb2.KeyValueList(values=_key_values(value))
-        )
+        return common_pb2.AnyValue(kvlist_value=common_pb2.KeyValueList(values=_key_values(value)))
     if isinstance(value, Sequence):
         return common_pb2.AnyValue(
             array_value=common_pb2.ArrayValue(values=[_any_value(v) for v in value])
@@ -3884,8 +4032,7 @@ def _key_values(attributes: Mapping[str, AnyValue]) -> list[Any]:
     from opentelemetry.proto.common.v1 import common_pb2
 
     return [
-        common_pb2.KeyValue(key=key, value=_any_value(value))
-        for key, value in attributes.items()
+        common_pb2.KeyValue(key=key, value=_any_value(value)) for key, value in attributes.items()
     ]
 
 
@@ -4053,9 +4200,7 @@ def _span(item: Span) -> Any:
         ],
     }
     if item.status is not None:
-        kwargs["status"] = trace_pb2.Status(
-            code=int(item.status.code), message=item.status.message
-        )
+        kwargs["status"] = trace_pb2.Status(code=int(item.status.code), message=item.status.message)
     return trace_pb2.Span(**kwargs)
 
 
@@ -4068,9 +4213,7 @@ def _encode_traces(data: Sequence[ResourceSpans]) -> bytes:
             trace_pb2.ResourceSpans(
                 resource=_resource(rs.resource),
                 scope_spans=[
-                    trace_pb2.ScopeSpans(
-                        scope=_scope(ss.scope), spans=[_span(s) for s in ss.spans]
-                    )
+                    trace_pb2.ScopeSpans(scope=_scope(ss.scope), spans=[_span(s) for s in ss.spans])
                     for ss in rs.scope_spans
                 ],
             )
@@ -4238,9 +4381,7 @@ spans = st.builds(
     events=st.lists(
         st.builds(SpanEvent, time_unix_nano=u64, name=text, attributes=attributes), max_size=2
     ),
-    status=st.one_of(
-        st.none(), st.builds(Status, code=st.sampled_from(StatusCode), message=text)
-    ),
+    status=st.one_of(st.none(), st.builds(Status, code=st.sampled_from(StatusCode), message=text)),
 )
 
 resource_spans = st.builds(
@@ -4277,9 +4418,7 @@ from otlp_client.encoding.protobuf import build_protobuf_encoder
 from otlp_client.signals import SignalKind
 from tests.support import strategies as s
 
-SETTINGS = settings(
-    max_examples=200, suppress_health_check=[HealthCheck.too_slow], deadline=None
-)
+SETTINGS = settings(max_examples=200, suppress_health_check=[HealthCheck.too_slow], deadline=None)
 
 
 def assert_encoders_agree(kind: SignalKind, request_type, envelope) -> None:
@@ -4437,8 +4576,11 @@ async def test_logs_and_traces_use_their_own_methods(grpc_server):
 
 @pytest.mark.parametrize(
     "code",
-    [grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.DEADLINE_EXCEEDED,
-     grpc.StatusCode.RESOURCE_EXHAUSTED],
+    [
+        grpc.StatusCode.UNAVAILABLE,
+        grpc.StatusCode.DEADLINE_EXCEEDED,
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+    ],
 )
 async def test_transient_status_codes_are_retryable(grpc_server, code):
     transport = await make_transport(await grpc_server(EchoHandler(code=code)))
@@ -4448,8 +4590,11 @@ async def test_transient_status_codes_are_retryable(grpc_server, code):
 
 @pytest.mark.parametrize(
     "code",
-    [grpc.StatusCode.INVALID_ARGUMENT, grpc.StatusCode.PERMISSION_DENIED,
-     grpc.StatusCode.UNIMPLEMENTED],
+    [
+        grpc.StatusCode.INVALID_ARGUMENT,
+        grpc.StatusCode.PERMISSION_DENIED,
+        grpc.StatusCode.UNIMPLEMENTED,
+    ],
 )
 async def test_other_status_codes_are_permanent(grpc_server, code):
     transport = await make_transport(await grpc_server(EchoHandler(code=code)))
@@ -4514,9 +4659,7 @@ from otlp_client.errors import OTLPConfigError
 from otlp_client.outcomes import ExportOutcome, Permanent, Retryable, Success
 from otlp_client.signals import SignalKind
 
-_MISSING = (
-    "the gRPC transport needs the optional extra: pip install 'asyncio-otlp-client[grpc]'"
-)
+_MISSING = "the gRPC transport needs the optional extra: pip install 'asyncio-otlp-client[grpc]'"
 
 _METHODS: dict[SignalKind, str] = {
     SignalKind.METRICS: "/opentelemetry.proto.collector.metrics.v1.MetricsService/Export",
@@ -4564,9 +4707,7 @@ class GRPCTransport:
     async def create(cls, config: OTLPConfig, encoder: Encoder) -> GRPCTransport:
         """Open a channel, doing all blocking credential loading off the loop."""
         if encoder.content_type != "application/x-protobuf":
-            raise OTLPConfigError(
-                "OTLP over gRPC has no JSON encoding; use the protobuf encoder"
-            )
+            raise OTLPConfigError("OTLP over gRPC has no JSON encoding; use the protobuf encoder")
         try:
             from grpc import aio
         except ImportError as exc:
@@ -4802,10 +4943,17 @@ async def export_all(config: OTLPConfig, marker: str) -> None:
             Success,
         )
         assert isinstance(
-            await client.export_traces([
-                span(f"span-{marker}", trace_id=TRACE_ID, span_id=SPAN_ID,
-                     start_time_unix_nano=1, end_time_unix_nano=2)
-            ]),
+            await client.export_traces(
+                [
+                    span(
+                        f"span-{marker}",
+                        trace_id=TRACE_ID,
+                        span_id=SPAN_ID,
+                        start_time_unix_nano=1,
+                        end_time_unix_nano=2,
+                    )
+                ]
+            ),
             Success,
         )
         await client.aclose()
@@ -5239,24 +5387,53 @@ from otlp_client.model.metrics import (
 )
 from otlp_client.signals import SignalKind
 
-EXPONENTIAL = Metric(name="eh", data=ExponentialHistogram(
-    aggregation_temporality=AggregationTemporality.DELTA,
-    data_points=[ExponentialHistogramDataPoint(
-        time_unix_nano=9, count=5, scale=2, zero_count=1, sum=12.5, min=0.5, max=9.0,
-        positive=Buckets(offset=3, bucket_counts=[1, 2]),
-        negative=Buckets(offset=-1, bucket_counts=[1]),
-    )]))
+EXPONENTIAL = Metric(
+    name="eh",
+    data=ExponentialHistogram(
+        aggregation_temporality=AggregationTemporality.DELTA,
+        data_points=[
+            ExponentialHistogramDataPoint(
+                time_unix_nano=9,
+                count=5,
+                scale=2,
+                zero_count=1,
+                sum=12.5,
+                min=0.5,
+                max=9.0,
+                positive=Buckets(offset=3, bucket_counts=[1, 2]),
+                negative=Buckets(offset=-1, bucket_counts=[1]),
+            )
+        ],
+    ),
+)
 
-SUMMARY = Metric(name="sm", data=Summary(data_points=[SummaryDataPoint(
-    time_unix_nano=9, count=4, sum=8.0,
-    quantile_values=[ValueAtQuantile(quantile=0.5, value=2.0)])]))
+SUMMARY = Metric(
+    name="sm",
+    data=Summary(
+        data_points=[
+            SummaryDataPoint(
+                time_unix_nano=9,
+                count=4,
+                sum=8.0,
+                quantile_values=[ValueAtQuantile(quantile=0.5, value=2.0)],
+            )
+        ]
+    ),
+)
 
 
 def encode_json(metric):
-    payload = JSONEncoder().encode(SignalKind.METRICS, [ResourceMetrics(
-        resource=Resource(attributes={"a": "b"}),
-        scope_metrics=[ScopeMetrics(scope=InstrumentationScope(name="t"), metrics=[metric])],
-    )])
+    payload = JSONEncoder().encode(
+        SignalKind.METRICS,
+        [
+            ResourceMetrics(
+                resource=Resource(attributes={"a": "b"}),
+                scope_metrics=[
+                    ScopeMetrics(scope=InstrumentationScope(name="t"), metrics=[metric])
+                ],
+            )
+        ],
+    )
     return json.loads(payload)["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]
 
 
@@ -5540,12 +5717,14 @@ summary_points = st.builds(
 Then add these two to the `st.one_of(...)` inside `metric_data`:
 
 ```python
+(
     st.builds(
         ExponentialHistogram,
         data_points=st.lists(exponential_points, min_size=1, max_size=3),
         aggregation_temporality=st.sampled_from(AggregationTemporality),
     ),
-    st.builds(Summary, data_points=st.lists(summary_points, min_size=1, max_size=3)),
+)
+(st.builds(Summary, data_points=st.lists(summary_points, min_size=1, max_size=3)),)
 ```
 
 - [ ] **Step 7: Export the new names**

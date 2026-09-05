@@ -6,9 +6,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
-type AnyValue = (
-    str | bool | int | float | bytes | Sequence["AnyValue"] | Mapping[str, "AnyValue"]
-)
+type AnyValue = str | bool | int | float | bytes | Sequence["AnyValue"] | Mapping[str, "AnyValue"]
 
 _EMPTY: Mapping[str, AnyValue] = MappingProxyType({})
 
