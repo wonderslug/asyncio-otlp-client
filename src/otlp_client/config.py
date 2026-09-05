@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 
 from otlp_client.errors import OTLPConfigError
 from otlp_client.model.common import Resource
@@ -192,7 +192,9 @@ class OTLPConfig:
             SignalKind.PROFILES: None,
         }[kind]
         if override:
-            return override
+            # The spec requires a per-signal URL to be used as-is, with one
+            # exception: a URL carrying no path part must use the root path.
+            return override if urlparse(override).path else override + "/"
         return self.endpoint.rstrip("/") + http_path(kind)
 
     def headers_for(self, kind: SignalKind) -> Mapping[str, str]:

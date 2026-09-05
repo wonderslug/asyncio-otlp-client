@@ -127,3 +127,21 @@ def test_profiles_resolves_to_the_general_values() -> None:
     )
     assert cfg.headers_for(SignalKind.PROFILES) == {"api-key": "secret"}
     assert cfg.timeout_for(SignalKind.PROFILES) == 10.0
+
+
+def test_pathless_per_signal_endpoint_gets_the_root_path() -> None:
+    # The spec: a per-signal URL is used as-is, except that a URL with no path
+    # part MUST use the root path.
+    cfg = OTLPConfig(
+        endpoint="https://collector.local:4318",
+        traces_endpoint="http://collector:4318",
+    )
+    assert cfg.endpoint_for(SignalKind.TRACES) == "http://collector:4318/"
+
+
+def test_per_signal_endpoint_with_a_path_is_left_alone() -> None:
+    cfg = OTLPConfig(
+        endpoint="https://collector.local:4318",
+        metrics_endpoint="https://elsewhere.example/ingest",
+    )
+    assert cfg.endpoint_for(SignalKind.METRICS) == "https://elsewhere.example/ingest"
