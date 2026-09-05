@@ -23,6 +23,17 @@ from otlp_client.model.metrics import (
     gauge,
     sum_,
 )
+from otlp_client.model.traces import (
+    ResourceSpans,
+    ScopeSpans,
+    Span,
+    SpanEvent,
+    SpanKind,
+    SpanLink,
+    Status,
+    StatusCode,
+    span,
+)
 from otlp_client.outcomes import ExportOutcome, PartialSuccess, Permanent, Retryable, Success
 from otlp_client.processor import BatchProcessor, ProcessorStats
 from otlp_client.signals import SignalKind
@@ -53,15 +64,24 @@ __all__ = [
     "Resource",
     "ResourceLogs",
     "ResourceMetrics",
+    "ResourceSpans",
     "Retryable",
     "ScopeLogs",
     "ScopeMetrics",
+    "ScopeSpans",
     "SeverityNumber",
     "SignalKind",
+    "Span",
+    "SpanEvent",
+    "SpanKind",
+    "SpanLink",
+    "Status",
+    "StatusCode",
     "Success",
     "Sum",
     "__version__",
     "gauge",
     "log_record",
+    "span",
     "sum_",
 ]

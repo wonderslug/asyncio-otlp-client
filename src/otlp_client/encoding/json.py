@@ -25,6 +25,7 @@ from otlp_client.model.metrics import (
     ScopeMetrics,
     Sum,
 )
+from otlp_client.model.traces import ResourceSpans, Span, SpanEvent, SpanLink
 from otlp_client.outcomes import PartialSuccess
 from otlp_client.signals import SignalKind
 
@@ -194,6 +195,71 @@ def _encode_resource_logs(data: Sequence[ResourceLogs]) -> dict[str, Any]:
     }
 
 
+def _encode_span_event(event: SpanEvent) -> dict[str, Any]:
+    return omit_empty(
+        {
+            "timeUnixNano": u64(event.time_unix_nano),
+            "name": event.name,
+            "attributes": encode_attributes(event.attributes),
+        }
+    )
+
+
+def _encode_span_link(link: SpanLink) -> dict[str, Any]:
+    return omit_empty(
+        {
+            "traceId": hex_id(link.trace_id),
+            "spanId": hex_id(link.span_id),
+            "attributes": encode_attributes(link.attributes),
+        }
+    )
+
+
+def _encode_span(item: Span) -> dict[str, Any]:
+    status = (
+        omit_empty({"code": int(item.status.code) or None, "message": item.status.message})
+        if item.status is not None
+        else None
+    )
+    return omit_empty(
+        {
+            "traceId": hex_id(item.trace_id),
+            "spanId": hex_id(item.span_id),
+            "parentSpanId": hex_id(item.parent_span_id) if item.parent_span_id else None,
+            "name": item.name,
+            "kind": int(item.kind) or None,
+            "startTimeUnixNano": u64(item.start_time_unix_nano),
+            "endTimeUnixNano": u64(item.end_time_unix_nano),
+            "attributes": encode_attributes(item.attributes),
+            "events": [_encode_span_event(e) for e in item.events],
+            "links": [_encode_span_link(link) for link in item.links],
+            "status": status,
+        }
+    )
+
+
+def _encode_resource_spans(data: Sequence[ResourceSpans]) -> dict[str, Any]:
+    return {
+        "resourceSpans": [
+            omit_empty(
+                {
+                    "resource": _encode_resource(rs.resource),
+                    "scopeSpans": [
+                        omit_empty(
+                            {
+                                "scope": _encode_scope(ss.scope),
+                                "spans": [_encode_span(s) for s in ss.spans],
+                            }
+                        )
+                        for ss in rs.scope_spans
+                    ],
+                }
+            )
+            for rs in data
+        ]
+    }
+
+
 class JSONEncoder:
     """Encodes the model tree as OTLP/JSON."""
 
@@ -206,6 +272,8 @@ class JSONEncoder:
             return _dumps(_encode_resource_metrics(data))
         if kind is SignalKind.LOGS:
             return _dumps(_encode_resource_logs(data))
+        if kind is SignalKind.TRACES:
+            return _dumps(_encode_resource_spans(data))
         if kind is SignalKind.PROFILES:
             raise NotImplementedError(
                 "the profiles signal is still in development and is not encoded yet"
