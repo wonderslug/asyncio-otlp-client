@@ -93,6 +93,13 @@ class OTLPConfig:
             raise OTLPConfigError("timeout must be greater than zero")
         if self.max_elapsed <= 0:
             raise OTLPConfigError("max_elapsed must be greater than zero")
+        for name, value in (
+            ("metrics_timeout", self.metrics_timeout),
+            ("logs_timeout", self.logs_timeout),
+            ("traces_timeout", self.traces_timeout),
+        ):
+            if value is not None and value <= 0:
+                raise OTLPConfigError(f"{name} must be greater than zero")
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> OTLPConfig:

@@ -51,6 +51,35 @@ def test_non_positive_timeout_is_rejected() -> None:
         OTLPConfig(endpoint="http://localhost:4318", timeout=0)
 
 
+def test_per_signal_timeout_of_zero_is_rejected() -> None:
+    # aiohttp treats ClientTimeout(total=0) as NO timeout at all, so a
+    # per-signal zero must be rejected the same way the general timeout is,
+    # rather than silently disabling the timeout for that signal.
+    with pytest.raises(OTLPConfigError, match="timeout"):
+        OTLPConfig(endpoint="http://localhost:4318", metrics_timeout=0)
+    with pytest.raises(OTLPConfigError, match="timeout"):
+        OTLPConfig(endpoint="http://localhost:4318", logs_timeout=0)
+    with pytest.raises(OTLPConfigError, match="timeout"):
+        OTLPConfig(endpoint="http://localhost:4318", traces_timeout=0)
+
+
+def test_negative_per_signal_timeout_is_rejected() -> None:
+    with pytest.raises(OTLPConfigError, match="timeout"):
+        OTLPConfig(endpoint="http://localhost:4318", metrics_timeout=-1.0)
+    with pytest.raises(OTLPConfigError, match="timeout"):
+        OTLPConfig(endpoint="http://localhost:4318", logs_timeout=-1.0)
+    with pytest.raises(OTLPConfigError, match="timeout"):
+        OTLPConfig(endpoint="http://localhost:4318", traces_timeout=-1.0)
+
+
+def test_unset_per_signal_timeout_is_fine() -> None:
+    # None means "not configured" and must not trip the non-positive check.
+    cfg = OTLPConfig(endpoint="http://localhost:4318")
+    assert cfg.metrics_timeout is None
+    assert cfg.logs_timeout is None
+    assert cfg.traces_timeout is None
+
+
 def test_headers_fall_back_to_the_general_value() -> None:
     cfg = OTLPConfig(endpoint="http://localhost:4318", headers={"api-key": "secret"})
     assert cfg.headers_for(SignalKind.TRACES) == {"api-key": "secret"}

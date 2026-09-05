@@ -183,3 +183,17 @@ def test_invalid_per_signal_timeout_is_rejected() -> None:
 def test_invalid_per_signal_compression_is_rejected() -> None:
     with pytest.raises(OTLPConfigError, match="compression"):
         OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_TRACES_COMPRESSION": "brotli"})
+
+
+def test_empty_compression_variable_is_treated_as_unset() -> None:
+    # An empty environment variable is conventionally the same as an unset one
+    # (`export X="${MAYBE_UNSET}"` yields ""), and the spec defines the
+    # compression default as "no value explicitly specified".
+    assert (
+        OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_COMPRESSION": ""}).compression is Compression.NONE
+    )
+
+
+def test_general_timeout_of_zero_is_rejected() -> None:
+    with pytest.raises(OTLPConfigError, match="timeout"):
+        OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_TIMEOUT": "0"})
