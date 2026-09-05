@@ -105,6 +105,69 @@ def test_default_status_is_omitted_like_the_json_encoder() -> None:
     assert pb_span.HasField("status") is False
 
 
+def test_default_resource_is_omitted_like_the_json_encoder() -> None:
+    # OTLPConfig.resource defaults to None, and OTLPClient substitutes a bare
+    # Resource() in that case, so this is the common path, not a corner case.
+    payload = build_protobuf_encoder().encode(SignalKind.METRICS, [
+        ResourceMetrics(resource=Resource(), scope_metrics=[ScopeMetrics(
+            scope=SCOPE, metrics=[gauge("t", 1.0, time_unix_nano=1)])])
+    ])
+    rm = ExportMetricsServiceRequest.FromString(payload).resource_metrics[0]
+    assert rm.HasField("resource") is False
+
+
+def test_default_scope_is_omitted_like_the_json_encoder() -> None:
+    payload = build_protobuf_encoder().encode(SignalKind.METRICS, [
+        ResourceMetrics(resource=RESOURCE, scope_metrics=[ScopeMetrics(
+            scope=InstrumentationScope(name=""), metrics=[gauge("t", 1.0, time_unix_nano=1)])])
+    ])
+    sm = ExportMetricsServiceRequest.FromString(payload).resource_metrics[0].scope_metrics[0]
+    assert sm.HasField("scope") is False
+
+
+def _assert_json_and_protobuf_encoders_agree(envelope: list[ResourceMetrics]) -> None:
+    """A miniature of Task 15's cross-encoder oracle, scoped to this task.
+
+    Parses the JSON encoder's output back into the real protobuf message
+    (via the standard protobuf JSON mapping, which OTLP/JSON matches except
+    for the documented traceId/spanId hex deviation — irrelevant to metrics)
+    and compares it against the message decoded straight from the protobuf
+    encoder's bytes. Message equality here is presence-sensitive: it compares
+    `ListFields()`, which only includes fields that are actually set, so an
+    unset "resource" and a present-but-default one do NOT compare equal.
+    """
+    from google.protobuf.json_format import Parse
+
+    from otlp_client.encoding.json import JSONEncoder
+
+    json_bytes = JSONEncoder().encode(SignalKind.METRICS, envelope)
+    protobuf_bytes = build_protobuf_encoder().encode(SignalKind.METRICS, envelope)
+    from_json = Parse(json_bytes, ExportMetricsServiceRequest())
+    from_protobuf = ExportMetricsServiceRequest.FromString(protobuf_bytes)
+    assert from_json == from_protobuf
+
+
+def test_encoders_agree_on_empty_resource_with_a_real_scope() -> None:
+    _assert_json_and_protobuf_encoders_agree([
+        ResourceMetrics(resource=Resource(), scope_metrics=[ScopeMetrics(
+            scope=SCOPE, metrics=[gauge("t", 1.0, time_unix_nano=1)])])
+    ])
+
+
+def test_encoders_agree_on_a_real_resource_with_an_empty_scope() -> None:
+    _assert_json_and_protobuf_encoders_agree([
+        ResourceMetrics(resource=RESOURCE, scope_metrics=[ScopeMetrics(
+            scope=InstrumentationScope(name=""), metrics=[gauge("t", 1.0, time_unix_nano=1)])])
+    ])
+
+
+def test_encoders_agree_when_both_resource_and_scope_are_empty() -> None:
+    _assert_json_and_protobuf_encoders_agree([
+        ResourceMetrics(resource=Resource(), scope_metrics=[ScopeMetrics(
+            scope=InstrumentationScope(name=""), metrics=[gauge("t", 1.0, time_unix_nano=1)])])
+    ])
+
+
 def test_decode_partial_success() -> None:
     response = ExportMetricsServiceResponse()
     response.partial_success.rejected_data_points = 5

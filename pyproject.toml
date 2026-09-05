@@ -42,10 +42,13 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 # The generated opentelemetry.proto.*_pb2 modules ship their own mypy-protobuf
-# .pyi stubs, but the hand-written google.protobuf base package (e.g.
-# google.protobuf.message.DecodeError, used in encoding/protobuf.py) does not
-# publish a py.typed marker or stub-only package here.
-module = "google.protobuf.message"
+# .pyi stubs, but the hand-written google.protobuf.* base package (e.g.
+# google.protobuf.message.DecodeError in encoding/protobuf.py,
+# google.protobuf.json_format.Parse in the test suite's cross-encoder check)
+# does not publish a py.typed marker or stub-only package here. Scoped to the
+# whole subpackage rather than one module at a time, since more of its
+# submodules turn up as this suite grows.
+module = "google.protobuf.*"
 ignore_missing_imports = true
 
 [tool.ruff]

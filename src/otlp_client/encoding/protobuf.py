@@ -122,6 +122,17 @@ def _key_values(attributes: Mapping[str, AnyValue]) -> list[Any]:
     ]
 
 
+def _resource_is_empty(resource: Resource) -> bool:
+    """True when a Resource carries nothing worth wire presence for.
+
+    Mirrors the JSON encoder's omit_empty, which drops the "resource" key
+    entirely once its encoded form is an empty dict. A collector treats an
+    absent resource and a present-but-empty one identically, so the two
+    encoders must agree on which one this is.
+    """
+    return not resource.attributes and not resource.dropped_attributes_count
+
+
 def _resource(resource: Resource) -> Any:
     from opentelemetry.proto.resource.v1 import resource_pb2
 
@@ -129,6 +140,15 @@ def _resource(resource: Resource) -> Any:
         attributes=_key_values(resource.attributes),
         dropped_attributes_count=resource.dropped_attributes_count,
     )
+
+
+def _scope_is_empty(scope: InstrumentationScope) -> bool:
+    """True when an InstrumentationScope carries nothing worth wire presence for.
+
+    Mirrors the JSON encoder's omit_empty, which drops the "scope" key
+    entirely once name, version, and attributes are all empty.
+    """
+    return not scope.name and not scope.version and not scope.attributes
 
 
 def _scope(scope: InstrumentationScope) -> Any:
@@ -203,10 +223,10 @@ def _encode_metrics(data: Sequence[ResourceMetrics]) -> bytes:
     request = metrics_service_pb2.ExportMetricsServiceRequest(
         resource_metrics=[
             metrics_pb2.ResourceMetrics(
-                resource=_resource(rm.resource),
+                resource=None if _resource_is_empty(rm.resource) else _resource(rm.resource),
                 scope_metrics=[
                     metrics_pb2.ScopeMetrics(
-                        scope=_scope(sm.scope),
+                        scope=None if _scope_is_empty(sm.scope) else _scope(sm.scope),
                         metrics=[_metric(m) for m in sm.metrics],
                     )
                     for sm in rm.scope_metrics
@@ -241,10 +261,10 @@ def _encode_logs(data: Sequence[ResourceLogs]) -> bytes:
     request = logs_service_pb2.ExportLogsServiceRequest(
         resource_logs=[
             logs_pb2.ResourceLogs(
-                resource=_resource(rl.resource),
+                resource=None if _resource_is_empty(rl.resource) else _resource(rl.resource),
                 scope_logs=[
                     logs_pb2.ScopeLogs(
-                        scope=_scope(sl.scope),
+                        scope=None if _scope_is_empty(sl.scope) else _scope(sl.scope),
                         log_records=[_log_record(r) for r in sl.log_records],
                     )
                     for sl in rl.scope_logs
@@ -304,10 +324,11 @@ def _encode_traces(data: Sequence[ResourceSpans]) -> bytes:
     request = trace_service_pb2.ExportTraceServiceRequest(
         resource_spans=[
             trace_pb2.ResourceSpans(
-                resource=_resource(rs.resource),
+                resource=None if _resource_is_empty(rs.resource) else _resource(rs.resource),
                 scope_spans=[
                     trace_pb2.ScopeSpans(
-                        scope=_scope(ss.scope), spans=[_span(s) for s in ss.spans]
+                        scope=None if _scope_is_empty(ss.scope) else _scope(ss.scope),
+                        spans=[_span(s) for s in ss.spans],
                     )
                     for ss in rs.scope_spans
                 ],
