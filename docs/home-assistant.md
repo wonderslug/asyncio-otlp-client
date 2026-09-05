@@ -14,7 +14,7 @@ Add it to `manifest.json` with no extras:
 ```json
 {
   "domain": "my_integration",
-  "requirements": ["asyncio-otlp-client==0.2.0"]
+  "requirements": ["asyncio-otlp-client==0.3.0"]
 }
 ```
 
