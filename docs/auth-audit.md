@@ -112,11 +112,40 @@ Not auth, but found while reading the same code path:
   With `OTEL_EXPORTER_OTLP_PROTOCOL=grpc` and no endpoint set, we target the
   HTTP port.~~ **Fixed 2026-09-05** — `from_env()` now selects the default
   endpoint from the parsed protocol via `_DEFAULT_ENDPOINTS`.
-- **Default protocol.** Ours is `http/json`; the spec says SHOULD be
-  `http/protobuf`. Plausibly a deliberate choice to keep the core install
-  dependency-free — worth recording as intentional if so.
 - **Per-signal `TIMEOUT`, `COMPRESSION`, `PROTOCOL`** are also unimplemented,
   same gap as finding 2.
+
+## Intentional deviations
+
+Recorded so a later audit does not reopen them as defects.
+
+### Default protocol is `http/json`, not `http/protobuf`
+
+The spec's footnote [4] says the default protocol SHOULD be `http/protobuf`.
+This client defaults to `http/json` deliberately, and should keep doing so.
+
+The core install depends on `aiohttp` alone — not even `opentelemetry-api`.
+The primary consumer is a Home Assistant integration, and HA ships neither
+`protobuf` nor `grpcio`, so the manifest requirement is one line with no
+extras. `http/protobuf` would pull in `opentelemetry-proto`, which means wheels
+with musllinux tags and the HA wheel builder.
+
+This is not a soft preference. `tests/test_core_only.py` enforces the
+dependency-free core with two independent guards (an AST scan for module-level
+imports of the extras, and a subprocess asserting they never reach
+`sys.modules`). And the deviation is load-bearing rather than cosmetic: because
+`_build_encoder()` raises `OTLPConfigError` when the protobuf extra is absent,
+a spec-conformant `http/protobuf` default would make plain
+`OTLPConfig(endpoint=...)` fail on a core-only install — the library's main use
+case would not work out of the box.
+
+The spec says SHOULD, not MUST, which permits deviation where the implications
+are understood; they are, and they are documented here and in the README. The
+requirement is also addressed to SDKs, and this package is scoped as a client,
+not an SDK.
+
+Users who want protobuf on the wire set `protocol` explicitly and install the
+matching extra, which the README covers.
 
 ## Sources
 

@@ -23,7 +23,11 @@ pip install 'asyncio-otlp-client[grpc]'      # OTLP over gRPC (implies protobuf)
 
 The JSON encoder is pure Python and always available. The protobuf encoder
 (used for `http/protobuf` and required for `grpc`) is imported lazily and only
-needs to be installed if you use it. Both encoders agree on the wire: they omit
+needs to be installed if you use it. This is why the default protocol is
+`http/json` rather than the `http/protobuf` the OTLP spec recommends: the
+default has to work on a core install, which depends on `aiohttp` alone. Set
+`protocol` explicitly and install the matching extra to put protobuf on the
+wire. Both encoders agree on the wire: they omit
 `resource`, `scope`, and `status` from the payload entirely when those carry no
 information, rather than sending an empty object.
 
