@@ -1,4 +1,5 @@
 import json
+import sys
 from typing import Any
 
 import pytest
@@ -119,13 +120,20 @@ async def test_context_manager_closes_the_transport() -> None:
     assert transport.closed is True
 
 
-def test_http_protobuf_without_extra_names_the_protobuf_extra() -> None:
+def test_http_protobuf_without_extra_names_the_protobuf_extra(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The dev environment installs opentelemetry-proto (so the real protobuf
+    # encoder's own tests can run), so simulate the extra being absent by
+    # poisoning sys.modules for the one module build_protobuf_encoder() probes.
+    monkeypatch.setitem(sys.modules, "opentelemetry.proto.common.v1.common_pb2", None)
     config = OTLPConfig(endpoint="http://localhost:4318", protocol=OTLPProtocol.HTTP_PROTOBUF)
     with pytest.raises(OTLPConfigError, match=r"pip install 'asyncio-otlp-client\[protobuf\]'"):
         _build_encoder(config)
 
 
-def test_grpc_without_extra_names_the_grpc_extra() -> None:
+def test_grpc_without_extra_names_the_grpc_extra(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "opentelemetry.proto.common.v1.common_pb2", None)
     config = OTLPConfig(endpoint="http://localhost:4318", protocol=OTLPProtocol.GRPC)
     with pytest.raises(OTLPConfigError, match=r"pip install 'asyncio-otlp-client\[grpc\]'"):
         _build_encoder(config)
