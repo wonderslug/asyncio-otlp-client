@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from enum import StrEnum
@@ -189,18 +190,23 @@ class OAuth2ClientCredentials:
                 self._token_url, data=self._form(), headers=self._auth_header()
             ) as response:
                 status = response.status
-                body = await response.json(content_type=None)
+                raw = await response.read()
         except (aiohttp.ClientError, TimeoutError) as exc:
             raise OTLPTransportError(
                 f"could not reach the token endpoint: {type(exc).__name__}: {exc}"
             ) from exc
-        except ValueError as exc:
-            # A body that is not JSON at all. Never echoed back: it may be an
-            # upstream error page carrying anything.
-            raise OTLPPermanentError("token endpoint returned a non-JSON body") from exc
 
+        # Classify the status before parsing: a 5xx carrying an HTML error page
+        # from a proxy is a transient failure, not a malformed-response bug.
         if status >= 500:
             raise OTLPTransportError(f"token endpoint returned status {status}")
+
+        try:
+            body = json.loads(raw)
+        except ValueError as exc:
+            # Never echoed back: an upstream error page can carry anything.
+            raise OTLPPermanentError("token endpoint returned a non-JSON body") from exc
+
         if status >= 400:
             # RFC 6749 section 5.2: `error` and `error_description` only. The
             # raw body never goes into the message -- it can carry the secret

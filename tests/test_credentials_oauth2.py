@@ -350,6 +350,31 @@ async def test_a_non_json_body_is_permanent(token_server: EndpointFactory) -> No
     await server.close()
 
 
+async def test_a_server_error_with_a_non_json_body_is_still_transport_shaped(
+    token_server: EndpointFactory,
+) -> None:
+    # A proxy or load balancer answering 503 with an HTML error page must be
+    # retried, not treated as a malformed response.
+    async def handle(request: web.Request) -> web.Response:
+        return web.Response(status=503, body=b"<html>bad gateway</html>")
+
+    app = web.Application()
+    app.router.add_route("POST", "/token", handle)
+    server = TestServer(app)
+    await server.start_server()
+    session = ClientSession()
+    provider = OAuth2ClientCredentials(
+        token_url=str(server.make_url("/token")),
+        client_id="id",
+        client_secret="sh",
+        session=session,
+    )
+    with pytest.raises(OTLPTransportError):
+        await provider.headers(METRICS)
+    await session.close()
+    await server.close()
+
+
 async def test_the_client_secret_never_appears_in_an_error(
     token_server: EndpointFactory,
 ) -> None:
