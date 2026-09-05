@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 from collections.abc import AsyncIterator, Awaitable, Callable
+from urllib.parse import quote_plus
 
 import pytest
 from aiohttp import ClientSession, web
@@ -169,6 +171,36 @@ async def test_basic_auth_style_sends_credentials_in_the_header(
     headers, form = endpoint.requests[0]
     assert headers["Authorization"].startswith("Basic ")
     assert "client_secret" not in form
+
+
+async def test_basic_auth_style_percent_encodes_each_half(
+    token_server: EndpointFactory,
+) -> None:
+    """RFC 6749 section 2.3.1: each half is form-urlencoded before the
+    colon-join, so a secret with a ':' or a non-ASCII character survives
+    intact rather than corrupting the split between id and secret.
+
+    Against the old `f"{id}:{secret}".encode()` join, the decoded header
+    would be "id:sh:ut€up" -- splitting on the first ':' recovers the raw
+    secret "sh:ut€up" (not percent-encoded), so this assertion fails
+    against that code and only passes once each half is quote_plus'd first.
+    """
+    endpoint = TokenEndpoint()
+    url, session = await token_server(endpoint)
+    secret = "sh:ut€up"
+    provider = OAuth2ClientCredentials(
+        token_url=url,
+        client_id="id",
+        client_secret=secret,
+        auth_style=AuthStyle.BASIC,
+        session=session,
+    )
+    await provider.headers(METRICS)
+    headers, _ = endpoint.requests[0]
+    raw = base64.b64decode(headers["Authorization"].removeprefix("Basic "))
+    decoded_id, decoded_secret = raw.decode("utf-8").split(":", 1)
+    assert decoded_id == quote_plus("id")
+    assert decoded_secret == quote_plus(secret)
 
 
 async def test_a_borrowed_session_is_not_closed(token_server: EndpointFactory) -> None:

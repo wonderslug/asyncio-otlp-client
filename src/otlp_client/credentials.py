@@ -12,6 +12,7 @@ import time
 from collections.abc import Awaitable, Callable, Mapping
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from urllib.parse import quote_plus
 
 from otlp_client.signals import SignalKind
 
@@ -155,7 +156,9 @@ class OAuth2ClientCredentials:
     def _auth_header(self) -> dict[str, str]:
         if self._auth_style is not AuthStyle.BASIC:
             return {}
-        raw = f"{self._client_id}:{self._client_secret}".encode()
+        # RFC 6749 section 2.3.1: each half is form-urlencoded before the
+        # colon-join, so a secret containing ':' or non-ASCII survives intact.
+        raw = f"{quote_plus(self._client_id)}:{quote_plus(self._client_secret)}".encode()
         return {"Authorization": f"Basic {base64.b64encode(raw).decode('ascii')}"}
 
     async def _ensure_session(self) -> aiohttp.ClientSession:
