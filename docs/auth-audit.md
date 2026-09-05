@@ -118,8 +118,8 @@ Not auth, but found while reading the same code path:
   With `OTEL_EXPORTER_OTLP_PROTOCOL=grpc` and no endpoint set, we target the
   HTTP port.~~ **Fixed 2026-09-05** — `from_env()` now selects the default
   endpoint from the parsed protocol via `_DEFAULT_ENDPOINTS`.
-- **Per-signal `TIMEOUT`, `COMPRESSION`, `PROTOCOL`** are also unimplemented,
-  same gap as finding 2.
+- **Per-signal `PROTOCOL`** is rejected by design rather than unimplemented —
+  see finding 2 and "Intentional deviations" below.
 
 ## Intentional deviations
 
