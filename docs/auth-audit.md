@@ -29,7 +29,8 @@ anywhere in the spec.
 | Client key file | `OTEL_EXPORTER_OTLP_CLIENT_KEY` | Supported |
 | Client certificate file | `OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE` | Supported |
 | Insecure | `OTEL_EXPORTER_OTLP_INSECURE` | Supported (fixed 2026-09-05) |
-| Per-signal variants of all five | `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_*` | **Missing** |
+| Per-signal `HEADERS` / `TIMEOUT` / `COMPRESSION` | `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_*` | Supported (2026-09-05) |
+| Per-signal `PROTOCOL` / `INSECURE` / TLS settings | `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_*` | Rejected by design |
 
 Headers reach both wire formats correctly: HTTP merges them into the request
 headers (`transport/http.py`), gRPC passes them as per-call metadata
@@ -76,7 +77,12 @@ on an already-TLS channel) and should not be confused with spec `Insecure`
 (use no TLS at all). We have the second-order knob and are missing the
 first-order one.
 
-### 2. No per-signal configuration variants
+### 2. No per-signal configuration variants — RESOLVED 2026-09-05
+
+**Resolved 2026-09-05.** Headers, timeout and compression are now per-signal,
+replacing rather than merging with the general value. Protocol, `insecure` and
+the TLS settings stay general-only and their per-signal forms raise — see
+"Intentional deviations" below. The paragraphs below describe the original gap.
 
 Every option in the table has `_TRACES_`, `_METRICS_`, `_LOGS_` forms in the
 spec. `OTLPConfig.from_env()` reads only the base form plus per-signal
@@ -146,6 +152,23 @@ not an SDK.
 
 Users who want protobuf on the wire set `protocol` explicitly and install the
 matching extra, which the README covers.
+
+### Per-signal protocol and TLS settings are rejected, not honoured
+
+One `OTLPClient` holds one encoder and one transport, both fixed at `create()`.
+`PROTOCOL` selects both, and `INSECURE`, `CERTIFICATE`, `CLIENT_KEY` and
+`CLIENT_CERTIFICATE` configure the connection, so none can vary per signal
+within a client.
+
+Per-signal certificates were considered for OTLP/HTTP alone, where aiohttp
+accepts `ssl=` per request. They were rejected: nine more config fields, and a
+field that silently behaves differently depending on the protocol. One clear
+rule — per-request options vary per signal, connection-level options do not —
+beats partial conformance with an asymmetry.
+
+`from_env()` raises on these rather than ignoring them, because a silently
+dropped per-signal protocol sends that signal in the wrong wire format and a
+silently dropped certificate is a security surprise.
 
 ## Sources
 
