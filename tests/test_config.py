@@ -145,3 +145,20 @@ def test_per_signal_endpoint_with_a_path_is_left_alone() -> None:
         metrics_endpoint="https://elsewhere.example/ingest",
     )
     assert cfg.endpoint_for(SignalKind.METRICS) == "https://elsewhere.example/ingest"
+
+
+def test_pathless_per_signal_endpoint_with_a_query_string_gets_root_path_before_query() -> None:
+    # The root path must land before the query, not after it.
+    cfg = OTLPConfig(
+        endpoint="https://collector.local:4318",
+        traces_endpoint="http://collector:4318?tenant=x",
+    )
+    assert cfg.endpoint_for(SignalKind.TRACES) == "http://collector:4318/?tenant=x"
+
+
+def test_pathless_per_signal_endpoint_with_a_fragment_gets_root_path_before_fragment() -> None:
+    cfg = OTLPConfig(
+        endpoint="https://collector.local:4318",
+        traces_endpoint="http://collector:4318#frag",
+    )
+    assert cfg.endpoint_for(SignalKind.TRACES) == "http://collector:4318/#frag"

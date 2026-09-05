@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urlparse, urlunparse
 
 from otlp_client.errors import OTLPConfigError
 from otlp_client.model.common import Resource
@@ -182,8 +182,9 @@ class OTLPConfig:
     def endpoint_for(self, kind: SignalKind) -> str:
         """Resolve the URL for a signal.
 
-        A per-signal endpoint is used verbatim; the base endpoint gets the
-        signal path appended. This asymmetry is required by the OTLP spec.
+        A per-signal endpoint is used verbatim, except that one carrying no
+        path part gets the root path `/`; the base endpoint gets the signal
+        path appended. This asymmetry is required by the OTLP spec.
         """
         override = {
             SignalKind.METRICS: self.metrics_endpoint,
@@ -194,7 +195,12 @@ class OTLPConfig:
         if override:
             # The spec requires a per-signal URL to be used as-is, with one
             # exception: a URL carrying no path part must use the root path.
-            return override if urlparse(override).path else override + "/"
+            # Rebuild rather than concatenate, so the root path lands before
+            # any query or fragment instead of after it.
+            parsed = urlparse(override)
+            if parsed.path:
+                return override
+            return urlunparse(parsed._replace(path="/"))
         return self.endpoint.rstrip("/") + http_path(kind)
 
     def headers_for(self, kind: SignalKind) -> Mapping[str, str]:
