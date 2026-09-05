@@ -8,38 +8,25 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build distributions
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
-        with:
-          python-version: "3.14"
-      - name: Build the sdist and wheel
-        run: uv build
-      - name: Check the built metadata renders on PyPI
-        run: uvx twine check dist/*
-      - uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist/
-
   publish:
-    name: Publish to PyPI
-    needs: build
+    name: Build and publish to PyPI
     runs-on: ubuntu-latest
     # Trusted Publishing: PyPI verifies this workflow's OIDC identity, so no
-    # API token is stored as a secret. Requires a one-time publisher setup on
-    # pypi.org for this repository/workflow/environment - see CONTRIBUTING.md.
+    # API token is stored as a repository secret. Requires a one-time publisher
+    # setup on pypi.org naming this repo, workflow and environment - see
+    # CONTRIBUTING.md.
     environment:
       name: pypi
       url: https://pypi.org/p/asyncio-otlp-client
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
         with:
-          name: dist
-          path: dist/
+          python-version: "3.14"
+      - name: Build the sdist and wheel
+        run: uv build
+      - name: Check that the metadata renders on PyPI
+        run: uvx twine check dist/*
       - uses: pypa/gh-action-pypi-publish@release/v1
