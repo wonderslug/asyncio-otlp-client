@@ -329,6 +329,48 @@ async def test_a_response_without_an_access_token_is_permanent(
         await provider.headers(METRICS)
 
 
+async def test_a_malformed_expires_in_is_permanent(token_server: EndpointFactory) -> None:
+    endpoint = TokenEndpoint(body={"access_token": "t", "expires_in": "not-a-number"})
+    url, session = await token_server(endpoint)
+    provider = OAuth2ClientCredentials(
+        token_url=url, client_id="id", client_secret="sh", session=session
+    )
+    with pytest.raises(OTLPPermanentError):
+        await provider.headers(METRICS)
+
+
+async def test_a_malformed_expires_in_does_not_cache_a_half_updated_token() -> None:
+    # If _token were assigned before the TTL parse, the failure would leave a
+    # token cached with _expires_at still 0.0 -- _usable() permanently false,
+    # so the endpoint would be re-hit and fail again on every later call
+    # instead of the next good response ever being reached.
+    requests: list[web.Request] = []
+
+    async def handle(request: web.Request) -> web.Response:
+        requests.append(request)
+        if len(requests) == 1:
+            return web.json_response({"access_token": "bad", "expires_in": "nope"})
+        return web.json_response({"access_token": "token-good", "expires_in": 3600})
+
+    app = web.Application()
+    app.router.add_route("POST", "/token", handle)
+    server = TestServer(app)
+    await server.start_server()
+    session = ClientSession()
+    provider = OAuth2ClientCredentials(
+        token_url=str(server.make_url("/token")),
+        client_id="id",
+        client_secret="sh",
+        session=session,
+    )
+    with pytest.raises(OTLPPermanentError):
+        await provider.headers(METRICS)
+    assert await provider.headers(METRICS) == {"authorization": "Bearer token-good"}
+    assert len(requests) == 2
+    await session.close()
+    await server.close()
+
+
 async def test_a_non_json_body_is_permanent(token_server: EndpointFactory) -> None:
     async def handle(request: web.Request) -> web.Response:
         return web.Response(status=200, body=b"<html>not json</html>")

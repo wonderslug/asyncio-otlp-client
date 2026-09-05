@@ -220,7 +220,23 @@ class OAuth2ClientCredentials:
         if not isinstance(body, dict) or not body.get("access_token"):
             raise OTLPPermanentError("token endpoint returned no access_token")
 
-        self._token = str(body["access_token"])
+        token = str(body["access_token"])
         expires_in = body.get("expires_in")
-        ttl = float(expires_in) if expires_in is not None else self._default_ttl
+        if expires_in is None:
+            ttl = self._default_ttl
+        else:
+            try:
+                ttl = float(expires_in)
+            except (TypeError, ValueError) as exc:
+                # Never echoed back, same reasoning as the non-JSON-body case
+                # above: an upstream can put anything in this field.
+                raise OTLPPermanentError("token endpoint returned a malformed expires_in") from exc
+        # A negative expires_in must not produce an expiry in the past: that
+        # would defeat the cache and re-hit the token endpoint on every export.
+        ttl = max(ttl, 0.0)
+
+        # Assigned only now that the TTL parsed cleanly: setting _token earlier
+        # and failing here would leave a token cached with _expires_at still at
+        # its old value, permanently un-refreshable and re-raising every call.
+        self._token = token
         self._expires_at = self._monotonic() + ttl
