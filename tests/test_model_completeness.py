@@ -27,6 +27,20 @@ KW_ONLY_TYPES = [
     cls for module in (common, logs, metrics, traces) for cls in _dataclasses_defined_in(module)
 ]
 
+# pytest reports @pytest.mark.parametrize over an empty list as SKIPPED, not
+# FAILED (there is no empty_parameter_set_mark override in pyproject.toml). If
+# discovery ever collapses -- a module rename, dataclasses moved behind a
+# different import alias, anything that breaks the __module__ comparison in
+# _dataclasses_defined_in -- test_model_types_are_keyword_only would quietly
+# show green-adjacent (skipped) instead of red, defeating the whole point of
+# discovering the type list instead of hand-writing it. Guard against that
+# explicitly. >= rather than == so this isn't a chore every time a legitimate
+# new model type is added.
+assert len(KW_ONLY_TYPES) >= 25, (
+    f"model dataclass discovery found {len(KW_ONLY_TYPES)}; it has broken, and an empty "
+    "parametrize would SKIP rather than fail"
+)
+
 
 @pytest.mark.parametrize("cls", KW_ONLY_TYPES, ids=lambda c: c.__name__)
 def test_model_types_are_keyword_only(cls: type) -> None:
