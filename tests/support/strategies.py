@@ -23,6 +23,7 @@ from otlp_client.model.traces import (
     Span,
     SpanEvent,
     SpanKind,
+    SpanLink,
     Status,
     StatusCode,
 )
@@ -36,9 +37,24 @@ text = st.text(max_size=20)
 finite = st.floats(allow_nan=False, allow_infinity=False, width=32)
 
 scalars = st.one_of(text, st.booleans(), i64, finite, st.binary(max_size=8))
-attributes = st.dictionaries(text, scalars, max_size=4)
+# Recursive AnyValue: exercises encode_any_value's two container branches
+# (arrayValue/kvlistValue), not just the five scalar leaves. Bounded by
+# max_leaves so generated trees stay small and shrinking stays fast.
+any_values = st.recursive(
+    scalars,
+    lambda children: st.one_of(
+        st.lists(children, max_size=3),
+        st.dictionaries(text, children, max_size=3),
+    ),
+    max_leaves=5,
+)
+attributes = st.dictionaries(text, any_values, max_size=4)
+# A small non-negative range: enough to exercise the `x or None` omit-on-zero
+# branch (via 0) and real wire presence (via a nonzero value) for fields that
+# otherwise never carry any information in these strategies.
+small_uint = st.integers(min_value=0, max_value=255)
 
-resources = st.builds(Resource, attributes=attributes)
+resources = st.builds(Resource, attributes=attributes, dropped_attributes_count=small_uint)
 scopes = st.builds(
     InstrumentationScope, name=text, version=st.one_of(st.none(), text), attributes=attributes
 )
@@ -92,12 +108,13 @@ log_records = st.builds(
     LogRecord,
     time_unix_nano=u64,
     observed_time_unix_nano=u64,
-    body=scalars,
+    body=any_values,
     severity_number=st.sampled_from(SeverityNumber),
     severity_text=text,
     attributes=attributes,
     trace_id=st.one_of(st.none(), st.binary(min_size=16, max_size=16)),
     span_id=st.one_of(st.none(), st.binary(min_size=8, max_size=8)),
+    flags=small_uint,
 )
 
 resource_logs = st.builds(
@@ -110,6 +127,13 @@ resource_logs = st.builds(
         min_size=1,
         max_size=2,
     ),
+)
+
+span_links = st.builds(
+    SpanLink,
+    trace_id=st.binary(min_size=16, max_size=16),
+    span_id=st.binary(min_size=8, max_size=8),
+    attributes=attributes,
 )
 
 spans = st.builds(
@@ -125,6 +149,7 @@ spans = st.builds(
     events=st.lists(
         st.builds(SpanEvent, time_unix_nano=u64, name=text, attributes=attributes), max_size=2
     ),
+    links=st.lists(span_links, max_size=2),
     status=st.one_of(
         st.none(), st.builds(Status, code=st.sampled_from(StatusCode), message=text)
     ),
