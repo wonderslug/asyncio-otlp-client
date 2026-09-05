@@ -162,6 +162,15 @@ def _encode_exponential_point(point: ExponentialHistogramDataPoint) -> dict[str,
             "max": point.max,
             "flags": point.flags or None,
             "exemplars": [_encode_exemplar(e) for e in point.exemplars],
+            # Implicit presence, unlike min/max/sum above: protobuf omits +0.0
+            # but keeps -0.0, whose bit pattern differs from the default. A
+            # plain `or None` would drop it, diverging from the protobuf
+            # encoder for that one value -- the Summary.sum defect.
+            "zeroThreshold": (
+                point.zero_threshold
+                if point.zero_threshold or math.copysign(1.0, point.zero_threshold) < 0
+                else None
+            ),
         }
     )
 
