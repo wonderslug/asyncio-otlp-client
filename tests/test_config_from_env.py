@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 
 from otlp_client.config import Compression, OTLPConfig, OTLPProtocol
@@ -76,3 +78,57 @@ def test_missing_endpoint_defaults_to_localhost() -> None:
 def test_unknown_protocol_is_rejected() -> None:
     with pytest.raises(OTLPConfigError, match="protocol"):
         OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_PROTOCOL": "carrier-pigeon"})
+
+
+def test_grpc_protocol_defaults_to_the_grpc_port() -> None:
+    cfg = OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_PROTOCOL": "grpc"})
+    assert cfg.endpoint == "http://localhost:4317"
+
+
+def test_http_protobuf_protocol_defaults_to_the_http_port() -> None:
+    cfg = OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf"})
+    assert cfg.endpoint == "http://localhost:4318"
+
+
+def test_explicit_endpoint_still_wins_over_the_grpc_default() -> None:
+    cfg = OTLPConfig.from_env(
+        {
+            "OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "https://collector.local:9999",
+        }
+    )
+    assert cfg.endpoint == "https://collector.local:9999"
+
+
+def test_explicitly_empty_endpoint_is_rejected_rather_than_defaulted() -> None:
+    with pytest.raises(OTLPConfigError, match="endpoint"):
+        OTLPConfig.from_env(
+            {"OTEL_EXPORTER_OTLP_PROTOCOL": "grpc", "OTEL_EXPORTER_OTLP_ENDPOINT": ""}
+        )
+
+
+def test_insecure_defaults_to_false() -> None:
+    assert OTLPConfig.from_env({}).insecure is False
+    assert OTLPConfig(endpoint="http://localhost:4317").insecure is False
+
+
+@pytest.mark.parametrize("raw", ["true", "TRUE", "True"])
+def test_insecure_is_true_only_for_case_insensitive_true(raw: str) -> None:
+    assert OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_INSECURE": raw}).insecure is True
+
+
+@pytest.mark.parametrize("raw", ["false", "FALSE", ""])
+def test_insecure_is_false_for_false_and_empty(raw: str) -> None:
+    assert OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_INSECURE": raw}).insecure is False
+
+
+@pytest.mark.parametrize("raw", ["1", "yes", "on", "banana"])
+def test_insecure_rejects_values_the_spec_forbids_extending_to(
+    raw: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The spec forbids implementations adding their own true values, and
+    # requires falling back to false with a warning rather than raising.
+    with caplog.at_level(logging.WARNING):
+        cfg = OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_INSECURE": raw})
+    assert cfg.insecure is False
+    assert "OTEL_EXPORTER_OTLP_INSECURE" in caplog.text

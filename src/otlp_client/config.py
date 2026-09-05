@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -12,6 +13,8 @@ from urllib.parse import unquote
 from otlp_client.errors import OTLPConfigError
 from otlp_client.model.common import Resource
 from otlp_client.signals import SignalKind, http_path
+
+_LOGGER = logging.getLogger(__name__)
 
 _NO_HEADERS: Mapping[str, str] = MappingProxyType({})
 
@@ -25,6 +28,16 @@ class OTLPProtocol(StrEnum):
 class Compression(StrEnum):
     NONE = "none"
     GZIP = "gzip"
+
+
+# Per the OTLP spec, OTLP/gRPC and OTLP/HTTP have different default ports.
+_DEFAULT_ENDPOINTS: Mapping[OTLPProtocol, str] = MappingProxyType(
+    {
+        OTLPProtocol.HTTP_JSON: "http://localhost:4318",
+        OTLPProtocol.HTTP_PROTOBUF: "http://localhost:4318",
+        OTLPProtocol.GRPC: "http://localhost:4317",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +56,10 @@ class OTLPConfig:
     logs_endpoint: str | None = None
     traces_endpoint: str | None = None
 
+    # `insecure` chooses whether TLS is used at all and only applies to gRPC
+    # endpoints written without a scheme. `insecure_skip_verify` is a different
+    # knob: it keeps TLS but stops verifying the server's certificate.
+    insecure: bool = False
     certificate_file: str | None = None
     client_certificate_file: str | None = None
     client_key_file: str | None = None
@@ -89,9 +106,12 @@ class OTLPConfig:
             raise OTLPConfigError(f"invalid timeout {timeout_ms!r}") from exc
 
         return cls(
-            endpoint=src.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318"),
+            endpoint=src.get("OTEL_EXPORTER_OTLP_ENDPOINT", _DEFAULT_ENDPOINTS[protocol]),
             protocol=protocol,
             headers=_parse_headers(src.get("OTEL_EXPORTER_OTLP_HEADERS", "")),
+            insecure=_parse_bool(
+                src.get("OTEL_EXPORTER_OTLP_INSECURE", ""), "OTEL_EXPORTER_OTLP_INSECURE"
+            ),
             timeout=timeout,
             compression=compression,
             metrics_endpoint=src.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"),
@@ -117,6 +137,23 @@ class OTLPConfig:
         if override:
             return override
         return self.endpoint.rstrip("/") + http_path(kind)
+
+
+def _parse_bool(raw: str, name: str) -> bool:
+    """Parse a spec Boolean.
+
+    Only the case-insensitive string "true" is true, and implementations are
+    forbidden from extending that set, so "1" and "yes" are false. Anything
+    other than true/false/empty falls back to false with a warning rather than
+    raising, per the spec: false is defined to be the safe default, so a loud
+    failure would buy nothing over the safe fallback.
+    """
+    value = raw.strip().lower()
+    if value == "true":
+        return True
+    if value not in ("false", ""):
+        _LOGGER.warning("ignoring unrecognised %s value %r, falling back to false", name, raw)
+    return False
 
 
 def _parse_headers(raw: str) -> Mapping[str, str]:

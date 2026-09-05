@@ -134,9 +134,28 @@ variables instead, opt in explicitly:
 config = OTLPConfig.from_env()  # OTEL_EXPORTER_OTLP_*
 ```
 
-TLS is configured via `certificate_file` (a CA to trust), `client_certificate_file`
-/ `client_key_file` (mutual TLS), and `insecure_skip_verify` (skip certificate
-verification). `insecure_skip_verify` works over HTTPS. It does **not** work
+TLS is configured via `certificate_file` (a CA to trust) and
+`client_certificate_file` / `client_key_file` (mutual TLS).
+
+Two separate settings control transport security, and they are easy to confuse:
+
+- **`insecure`** decides whether TLS is used *at all*. It applies only to gRPC
+  endpoints written without a scheme, and defaults to `False`.
+- **`insecure_skip_verify`** keeps TLS but stops verifying the server's
+  certificate.
+
+For gRPC, an explicit scheme always wins over `insecure`: `https://host:4317`
+is TLS and `http://host:4317` is plaintext, whatever `insecure` says. Only a
+scheme-less `host:4317` consults `insecure`. OTLP/HTTP ignores `insecure`
+entirely and always uses the scheme in the endpoint.
+
+> **Behaviour change.** Before 0.3.0 a scheme-less gRPC endpoint such as
+> `collector.local:4317` connected in **plaintext**. It now uses TLS, matching
+> the OTLP spec, whose `insecure` default is `false`. If you relied on the old
+> behaviour, either write the scheme explicitly (`http://collector.local:4317`)
+> or set `insecure=True` / `OTEL_EXPORTER_OTLP_INSECURE=true`.
+
+`insecure_skip_verify` works over HTTPS. It does **not** work
 with `protocol=OTLPProtocol.GRPC` against a TLS endpoint — grpcio offers no API
 to disable certificate verification — and `OTLPClient.create()` raises
 `OTLPConfigError` there rather than silently connecting with verification
