@@ -2,6 +2,7 @@
 
 from otlp_client.client import OTLPClient, __version__
 from otlp_client.config import Compression, OTLPConfig, OTLPProtocol
+from otlp_client.credentials import BasicAuth, BearerToken, CredentialProvider
 from otlp_client.errors import (
     OTLPConfigError,
     OTLPError,
@@ -66,9 +67,12 @@ __all__ = [
     "SPAN_FLAGS_TRACE_FLAGS_MASK",
     "AggregationTemporality",
     "AnyValue",
+    "BasicAuth",
     "BatchProcessor",
+    "BearerToken",
     "Buckets",
     "Compression",
+    "CredentialProvider",
     "Exemplar",
     "ExponentialHistogram",
     "ExponentialHistogramDataPoint",
