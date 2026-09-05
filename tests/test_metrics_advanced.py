@@ -1,4 +1,5 @@
 import json
+import math
 from typing import Any
 
 import pytest
@@ -84,6 +85,48 @@ def test_exponential_histogram_json_uses_strings_for_64_bit_fields() -> None:
     assert point["sum"] == 12.5
     assert point["min"] == 0.5
     assert point["max"] == 9.0
+
+
+@pytest.mark.parametrize("value", [0.0, -0.0, 2.5])
+def test_exponential_histogram_min_max_survive_zero_and_negative_zero(value: float) -> None:
+    """min/max have explicit presence: only None is omitted, never a zero.
+
+    `ExponentialHistogramDataPoint.min`/`max` are the same explicit-presence
+    fields as `HistogramDataPoint.min`/`max` (pre-existing from v0.1.0), so
+    they need the same -0.0 coverage: -0.0 == 0.0 is True in Python, so a
+    plain equality check would not catch the sign bit being dropped.
+    """
+    point = ExponentialHistogramDataPoint(
+        time_unix_nano=9,
+        count=1,
+        positive=Buckets(bucket_counts=[1]),
+        min=value,
+        max=value,
+    )
+    metric = Metric(
+        name="eh",
+        data=ExponentialHistogram(data_points=[point]),
+    )
+    encoded = encode_json(metric)["exponentialHistogram"]["dataPoints"][0]
+    assert encoded["min"] == value
+    assert encoded["max"] == value
+    assert math.copysign(1.0, encoded["min"]) == math.copysign(1.0, value)
+    assert math.copysign(1.0, encoded["max"]) == math.copysign(1.0, value)
+
+
+def test_exponential_histogram_min_max_omitted_when_none() -> None:
+    point = ExponentialHistogramDataPoint(
+        time_unix_nano=9,
+        count=1,
+        positive=Buckets(bucket_counts=[1]),
+    )
+    metric = Metric(
+        name="eh",
+        data=ExponentialHistogram(data_points=[point]),
+    )
+    encoded = encode_json(metric)["exponentialHistogram"]["dataPoints"][0]
+    assert "min" not in encoded
+    assert "max" not in encoded
 
 
 def test_summary_json_shape() -> None:

@@ -20,7 +20,7 @@ from otlp_client.retry import RetryPolicy, with_retry
 from otlp_client.signals import SignalKind
 from otlp_client.transport.base import Transport
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 DEFAULT_SCOPE = InstrumentationScope(name="otlp_client", version=__version__)
 _EMPTY_RESOURCE = Resource()

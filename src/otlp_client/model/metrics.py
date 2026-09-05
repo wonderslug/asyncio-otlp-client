@@ -18,15 +18,38 @@ class AggregationTemporality(IntEnum):
     CUMULATIVE = 2
 
 
-@dataclass(frozen=True, slots=True)
+# Set when a data point represents "no measurement was recorded", which is
+# distinct from a measurement whose value happens to be zero.
+DATA_POINT_FLAGS_NO_RECORDED_VALUE = 0x00000001
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Exemplar:
+    """A sample measurement linked to the trace that produced it.
+
+    `filtered_attributes` carries attributes that are NOT already present on
+    the parent data point; duplicating the point's own attributes here is
+    what the proto's name is warning against.
+    """
+
+    filtered_attributes: Mapping[str, AnyValue] = field(default=_EMPTY, hash=False)
+    time_unix_nano: int
+    value: int | float
+    span_id: bytes | None = None
+    trace_id: bytes | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class NumberDataPoint:
     time_unix_nano: int
     value: int | float
     attributes: Mapping[str, AnyValue] = field(default=_EMPTY, hash=False)
     start_time_unix_nano: int | None = None
+    exemplars: Sequence[Exemplar] = ()
+    flags: int = 0
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class HistogramDataPoint:
     time_unix_nano: int
     count: int
@@ -35,27 +58,31 @@ class HistogramDataPoint:
     sum: float | None = None
     attributes: Mapping[str, AnyValue] = field(default=_EMPTY, hash=False)
     start_time_unix_nano: int | None = None
+    exemplars: Sequence[Exemplar] = ()
+    flags: int = 0
+    min: float | None = None
+    max: float | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Gauge:
     data_points: Sequence[NumberDataPoint]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Sum:
     data_points: Sequence[NumberDataPoint]
     aggregation_temporality: AggregationTemporality = AggregationTemporality.CUMULATIVE
     is_monotonic: bool = True
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Histogram:
     data_points: Sequence[HistogramDataPoint]
     aggregation_temporality: AggregationTemporality = AggregationTemporality.CUMULATIVE
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Buckets:
     """One side of an exponential histogram."""
 
@@ -63,7 +90,7 @@ class Buckets:
     bucket_counts: Sequence[int] = ()
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ExponentialHistogramDataPoint:
     time_unix_nano: int
     count: int
@@ -76,21 +103,23 @@ class ExponentialHistogramDataPoint:
     max: float | None = None
     attributes: Mapping[str, AnyValue] = field(default=_EMPTY, hash=False)
     start_time_unix_nano: int | None = None
+    flags: int = 0
+    exemplars: Sequence[Exemplar] = ()
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ExponentialHistogram:
     data_points: Sequence[ExponentialHistogramDataPoint]
     aggregation_temporality: AggregationTemporality = AggregationTemporality.CUMULATIVE
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ValueAtQuantile:
     quantile: float
     value: float
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class SummaryDataPoint:
     time_unix_nano: int
     count: int
@@ -98,9 +127,10 @@ class SummaryDataPoint:
     quantile_values: Sequence[ValueAtQuantile] = ()
     attributes: Mapping[str, AnyValue] = field(default=_EMPTY, hash=False)
     start_time_unix_nano: int | None = None
+    flags: int = 0
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Summary:
     """Legacy metric type. The proto carries no aggregation temporality."""
 
@@ -110,7 +140,7 @@ class Summary:
 type MetricData = Gauge | Sum | Histogram | ExponentialHistogram | Summary
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Metric:
     name: str
     data: MetricData
@@ -118,13 +148,13 @@ class Metric:
     unit: str = ""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ScopeMetrics:
     scope: InstrumentationScope
     metrics: Sequence[Metric]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ResourceMetrics:
     resource: Resource
     scope_metrics: Sequence[ScopeMetrics]
@@ -167,3 +197,8 @@ def sum_(
     )
     data = Sum(data_points=(point,), aggregation_temporality=temporality, is_monotonic=is_monotonic)
     return Metric(name=name, data=data, unit=unit, description=description)
+
+
+def data_point_flags(*, no_recorded_value: bool = False) -> int:
+    """Build a data point's flags."""
+    return DATA_POINT_FLAGS_NO_RECORDED_VALUE if no_recorded_value else 0

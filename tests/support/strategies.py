@@ -9,6 +9,7 @@ from otlp_client.model.logs import LogRecord, ResourceLogs, ScopeLogs, SeverityN
 from otlp_client.model.metrics import (
     AggregationTemporality,
     Buckets,
+    Exemplar,
     ExponentialHistogram,
     ExponentialHistogramDataPoint,
     Gauge,
@@ -59,6 +60,16 @@ attributes = st.dictionaries(text, any_values, max_size=4)
 # branch (via 0) and real wire presence (via a nonzero value) for fields that
 # otherwise never carry any information in these strategies.
 small_uint = st.integers(min_value=0, max_value=255)
+flags = st.integers(min_value=0, max_value=1023)
+
+exemplars = st.builds(
+    Exemplar,
+    time_unix_nano=u64,
+    value=st.one_of(i64, finite),
+    filtered_attributes=attributes,
+    span_id=st.one_of(st.none(), st.binary(min_size=8, max_size=8)),
+    trace_id=st.one_of(st.none(), st.binary(min_size=16, max_size=16)),
+)
 
 resources = st.builds(Resource, attributes=attributes, dropped_attributes_count=small_uint)
 scopes = st.builds(
@@ -71,6 +82,8 @@ number_points = st.builds(
     value=st.one_of(i64, finite),
     attributes=attributes,
     start_time_unix_nano=st.one_of(st.none(), u64),
+    flags=flags,
+    exemplars=st.lists(exemplars, max_size=2),
 )
 
 histogram_points = st.builds(
@@ -81,6 +94,10 @@ histogram_points = st.builds(
     explicit_bounds=st.lists(finite, max_size=2),
     sum=st.one_of(st.none(), finite),
     attributes=attributes,
+    flags=flags,
+    min=st.one_of(st.none(), finite),
+    max=st.one_of(st.none(), finite),
+    exemplars=st.lists(exemplars, max_size=2),
 )
 
 exponential_points = st.builds(
@@ -103,6 +120,8 @@ exponential_points = st.builds(
     min=st.one_of(st.none(), finite),
     max=st.one_of(st.none(), finite),
     attributes=attributes,
+    flags=flags,
+    exemplars=st.lists(exemplars, max_size=2),
 )
 
 summary_points = st.builds(
@@ -119,6 +138,7 @@ summary_points = st.builds(
         max_size=3,
     ),
     attributes=attributes,
+    flags=flags,
 )
 
 metric_data = st.one_of(
@@ -164,6 +184,7 @@ log_records = st.builds(
     attributes=attributes,
     trace_id=st.one_of(st.none(), st.binary(min_size=16, max_size=16)),
     span_id=st.one_of(st.none(), st.binary(min_size=8, max_size=8)),
+    event_name=text,
     flags=small_uint,
 )
 
@@ -183,7 +204,9 @@ span_links = st.builds(
     SpanLink,
     trace_id=st.binary(min_size=16, max_size=16),
     span_id=st.binary(min_size=8, max_size=8),
+    trace_state=text,
     attributes=attributes,
+    flags=flags,
 )
 
 spans = st.builds(
@@ -195,6 +218,8 @@ spans = st.builds(
     end_time_unix_nano=u64,
     kind=st.sampled_from(SpanKind),
     parent_span_id=st.one_of(st.none(), st.binary(min_size=8, max_size=8)),
+    trace_state=text,
+    flags=flags,
     attributes=attributes,
     events=st.lists(
         st.builds(SpanEvent, time_unix_nano=u64, name=text, attributes=attributes), max_size=2

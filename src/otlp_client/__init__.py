@@ -9,10 +9,19 @@ from otlp_client.errors import (
     OTLPTransportError,
 )
 from otlp_client.model.common import AnyValue, InstrumentationScope, Resource
-from otlp_client.model.logs import LogRecord, ResourceLogs, ScopeLogs, SeverityNumber, log_record
+from otlp_client.model.logs import (
+    LOG_RECORD_FLAGS_TRACE_FLAGS_MASK,
+    LogRecord,
+    ResourceLogs,
+    ScopeLogs,
+    SeverityNumber,
+    log_record,
+)
 from otlp_client.model.metrics import (
+    DATA_POINT_FLAGS_NO_RECORDED_VALUE,
     AggregationTemporality,
     Buckets,
+    Exemplar,
     ExponentialHistogram,
     ExponentialHistogramDataPoint,
     Gauge,
@@ -26,10 +35,14 @@ from otlp_client.model.metrics import (
     Summary,
     SummaryDataPoint,
     ValueAtQuantile,
+    data_point_flags,
     gauge,
     sum_,
 )
 from otlp_client.model.traces import (
+    SPAN_FLAGS_CONTEXT_HAS_IS_REMOTE,
+    SPAN_FLAGS_CONTEXT_IS_REMOTE,
+    SPAN_FLAGS_TRACE_FLAGS_MASK,
     ResourceSpans,
     ScopeSpans,
     Span,
@@ -39,17 +52,24 @@ from otlp_client.model.traces import (
     Status,
     StatusCode,
     span,
+    span_flags,
 )
 from otlp_client.outcomes import ExportOutcome, PartialSuccess, Permanent, Retryable, Success
 from otlp_client.processor import BatchProcessor, ProcessorStats
 from otlp_client.signals import SignalKind
 
 __all__ = [
+    "DATA_POINT_FLAGS_NO_RECORDED_VALUE",
+    "LOG_RECORD_FLAGS_TRACE_FLAGS_MASK",
+    "SPAN_FLAGS_CONTEXT_HAS_IS_REMOTE",
+    "SPAN_FLAGS_CONTEXT_IS_REMOTE",
+    "SPAN_FLAGS_TRACE_FLAGS_MASK",
     "AggregationTemporality",
     "AnyValue",
     "BatchProcessor",
     "Buckets",
     "Compression",
+    "Exemplar",
     "ExponentialHistogram",
     "ExponentialHistogramDataPoint",
     "ExportOutcome",
@@ -92,8 +112,10 @@ __all__ = [
     "SummaryDataPoint",
     "ValueAtQuantile",
     "__version__",
+    "data_point_flags",
     "gauge",
     "log_record",
     "span",
+    "span_flags",
     "sum_",
 ]

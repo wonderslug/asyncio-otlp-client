@@ -18,6 +18,7 @@ from otlp_client.model.common import InstrumentationScope, Resource
 from otlp_client.model.logs import LogRecord, ResourceLogs
 from otlp_client.model.metrics import (
     Buckets,
+    Exemplar,
     ExponentialHistogram,
     ExponentialHistogramDataPoint,
     Gauge,
@@ -72,6 +73,27 @@ def _encode_scope(scope: InstrumentationScope) -> dict[str, Any]:
     )
 
 
+def _encode_exemplar(exemplar: Exemplar) -> dict[str, Any]:
+    # bool before int: bool subclasses int, and a boolean is not a measurement.
+    if isinstance(exemplar.value, bool):
+        raise TypeError("exemplar values must be int or float, not bool")
+    value_field = (
+        {"asInt": u64(exemplar.value)}
+        if isinstance(exemplar.value, int)
+        else {"asDouble": exemplar.value}
+    )
+    return omit_empty(
+        {
+            "filteredAttributes": encode_attributes(exemplar.filtered_attributes),
+            "timeUnixNano": u64(exemplar.time_unix_nano),
+            **value_field,
+            # hex, never base64 -- the same rule as span and log record ids.
+            "spanId": hex_id(exemplar.span_id) if exemplar.span_id else None,
+            "traceId": hex_id(exemplar.trace_id) if exemplar.trace_id else None,
+        }
+    )
+
+
 def _encode_number_point(point: NumberDataPoint) -> dict[str, Any]:
     # bool before int: bool subclasses int, and a bool is not a valid metric value.
     if isinstance(point.value, bool):
@@ -86,6 +108,8 @@ def _encode_number_point(point: NumberDataPoint) -> dict[str, Any]:
             if point.start_time_unix_nano is not None
             else None,
             "timeUnixNano": u64(point.time_unix_nano),
+            "flags": point.flags or None,
+            "exemplars": [_encode_exemplar(e) for e in point.exemplars],
             **value_field,
         }
     )
@@ -103,6 +127,10 @@ def _encode_histogram_point(point: HistogramDataPoint) -> dict[str, Any]:
             "sum": point.sum,
             "bucketCounts": [u64(c) for c in point.bucket_counts],
             "explicitBounds": list(point.explicit_bounds),
+            "flags": point.flags or None,
+            "exemplars": [_encode_exemplar(e) for e in point.exemplars],
+            "min": point.min,
+            "max": point.max,
         }
     )
 
@@ -132,6 +160,8 @@ def _encode_exponential_point(point: ExponentialHistogramDataPoint) -> dict[str,
             "negative": _encode_buckets(point.negative),
             "min": point.min,
             "max": point.max,
+            "flags": point.flags or None,
+            "exemplars": [_encode_exemplar(e) for e in point.exemplars],
         }
     )
 
@@ -157,6 +187,7 @@ def _encode_summary_point(point: SummaryDataPoint) -> dict[str, Any]:
             "quantileValues": [
                 {"quantile": q.quantile, "value": q.value} for q in point.quantile_values
             ],
+            "flags": point.flags or None,
         }
     )
 
@@ -235,6 +266,7 @@ def _encode_log_record(record: LogRecord) -> dict[str, Any]:
             # documented deviation from the protobuf-JSON mapping.
             "traceId": hex_id(record.trace_id) if record.trace_id else None,
             "spanId": hex_id(record.span_id) if record.span_id else None,
+            "eventName": record.event_name,
             "flags": record.flags or None,
         }
     )
@@ -277,6 +309,8 @@ def _encode_span_link(link: SpanLink) -> dict[str, Any]:
         {
             "traceId": hex_id(link.trace_id),
             "spanId": hex_id(link.span_id),
+            "traceState": link.trace_state,
+            "flags": link.flags or None,
             "attributes": encode_attributes(link.attributes),
         }
     )
@@ -297,6 +331,8 @@ def _encode_span(item: Span) -> dict[str, Any]:
             "kind": int(item.kind) or None,
             "startTimeUnixNano": u64(item.start_time_unix_nano),
             "endTimeUnixNano": u64(item.end_time_unix_nano),
+            "traceState": item.trace_state,
+            "flags": item.flags or None,
             "attributes": encode_attributes(item.attributes),
             "events": [_encode_span_event(e) for e in item.events],
             "links": [_encode_span_link(link) for link in item.links],
