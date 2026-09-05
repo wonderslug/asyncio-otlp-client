@@ -12,6 +12,7 @@ from otlp_client.config import OTLPConfig, OTLPProtocol
 from otlp_client.encoding.base import Encoder
 from otlp_client.errors import OTLPConfigError, OTLPPermanentError, OTLPTransportError
 from otlp_client.model.common import InstrumentationScope, Resource
+from otlp_client.model.logs import LogRecord, ResourceLogs, ScopeLogs
 from otlp_client.model.metrics import Metric, ResourceMetrics, ScopeMetrics
 from otlp_client.outcomes import ExportOutcome, PartialSuccess, Permanent, Retryable, Success
 from otlp_client.retry import RetryPolicy, with_retry
@@ -143,6 +144,28 @@ class OTLPClient:
     ) -> Success | PartialSuccess:
         """Export fully built metric envelopes."""
         return await self._export(SignalKind.METRICS, data)
+
+    async def export_logs(
+        self,
+        records: Sequence[LogRecord],
+        *,
+        resource: Resource | None = None,
+        scope: InstrumentationScope | None = None,
+    ) -> Success | PartialSuccess:
+        """Export log records, wrapping them in the client's resource and scope."""
+        if not records:
+            return Success()
+        envelope = ResourceLogs(
+            resource=resource or self.resource,
+            scope_logs=[ScopeLogs(scope=scope or self._scope, log_records=list(records))],
+        )
+        return await self.export_resource_logs([envelope])
+
+    async def export_resource_logs(
+        self, data: Sequence[ResourceLogs]
+    ) -> Success | PartialSuccess:
+        """Export fully built log envelopes."""
+        return await self._export(SignalKind.LOGS, data)
 
     async def aclose(self) -> None:
         await self._transport.aclose()

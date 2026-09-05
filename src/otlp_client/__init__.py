@@ -9,6 +9,7 @@ from otlp_client.errors import (
     OTLPTransportError,
 )
 from otlp_client.model.common import AnyValue, InstrumentationScope, Resource
+from otlp_client.model.logs import LogRecord, ResourceLogs, ScopeLogs, SeverityNumber, log_record
 from otlp_client.model.metrics import (
     AggregationTemporality,
     Gauge,
@@ -36,6 +37,7 @@ __all__ = [
     "Histogram",
     "HistogramDataPoint",
     "InstrumentationScope",
+    "LogRecord",
     "Metric",
     "NumberDataPoint",
     "OTLPClient",
@@ -49,13 +51,17 @@ __all__ = [
     "Permanent",
     "ProcessorStats",
     "Resource",
+    "ResourceLogs",
     "ResourceMetrics",
     "Retryable",
+    "ScopeLogs",
     "ScopeMetrics",
+    "SeverityNumber",
     "SignalKind",
     "Success",
     "Sum",
     "__version__",
     "gauge",
+    "log_record",
     "sum_",
 ]

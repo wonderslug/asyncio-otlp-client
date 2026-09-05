@@ -12,6 +12,7 @@ from typing import Any, Self, cast
 
 from otlp_client.client import OTLPClient
 from otlp_client.model.common import InstrumentationScope, Resource
+from otlp_client.model.logs import LogRecord
 from otlp_client.model.metrics import Metric
 from otlp_client.outcomes import PartialSuccess
 from otlp_client.signals import SignalKind
@@ -64,9 +65,10 @@ class BatchProcessor:
         self._resource = resource
         self._scope = scope
         self._max_queue = max_queue
-        # One bounded queue per signal. Tasks 12 and 13 add LOGS and TRACES.
+        # One bounded queue per signal. Task 13 adds TRACES.
         self._queues: dict[SignalKind, deque[Any]] = {
             SignalKind.METRICS: deque(maxlen=max_queue),
+            SignalKind.LOGS: deque(maxlen=max_queue),
         }
         self._wake = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
@@ -109,16 +111,24 @@ class BatchProcessor:
         """Queue metrics. Returns False if anything was dropped or we are closed."""
         return self._submit(SignalKind.METRICS, metrics)
 
+    def submit_logs(self, records: Sequence[LogRecord]) -> bool:
+        """Queue log records. Returns False if anything was dropped or we are closed."""
+        return self._submit(SignalKind.LOGS, records)
+
     async def _export_batch(
         self, kind: SignalKind, batch: Sequence[Any]
     ) -> PartialSuccess | None:
         """Dispatch one drained batch to the right client method.
 
-        Tasks 12 and 13 add the LOGS and TRACES branches.
+        Task 13 adds the TRACES branch.
         """
         if kind is SignalKind.METRICS:
             result = await self._client.export_metrics(
                 cast("Sequence[Metric]", batch), resource=self._resource, scope=self._scope
+            )
+        elif kind is SignalKind.LOGS:
+            result = await self._client.export_logs(
+                cast("Sequence[LogRecord]", batch), resource=self._resource, scope=self._scope
             )
         else:  # pragma: no cover - unreachable until later signals are added
             raise NotImplementedError(f"no processor branch for {kind}")

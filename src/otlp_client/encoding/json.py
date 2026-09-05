@@ -6,8 +6,15 @@ import json as _stdlib_json
 from collections.abc import Sequence
 from typing import Any
 
-from otlp_client.encoding.primitives import encode_attributes, omit_empty, u64
+from otlp_client.encoding.primitives import (
+    encode_any_value,
+    encode_attributes,
+    hex_id,
+    omit_empty,
+    u64,
+)
 from otlp_client.model.common import InstrumentationScope, Resource
+from otlp_client.model.logs import LogRecord, ResourceLogs
 from otlp_client.model.metrics import (
     Gauge,
     Histogram,
@@ -147,6 +154,46 @@ def _encode_resource_metrics(data: Sequence[ResourceMetrics]) -> dict[str, Any]:
     }
 
 
+def _encode_log_record(record: LogRecord) -> dict[str, Any]:
+    return omit_empty(
+        {
+            "timeUnixNano": u64(record.time_unix_nano),
+            "observedTimeUnixNano": u64(record.observed_time_unix_nano),
+            "severityNumber": int(record.severity_number) or None,
+            "severityText": record.severity_text,
+            "body": encode_any_value(record.body),
+            "attributes": encode_attributes(record.attributes),
+            # traceId and spanId are hex, never base64. This is the one
+            # documented deviation from the protobuf-JSON mapping.
+            "traceId": hex_id(record.trace_id) if record.trace_id else None,
+            "spanId": hex_id(record.span_id) if record.span_id else None,
+            "flags": record.flags or None,
+        }
+    )
+
+
+def _encode_resource_logs(data: Sequence[ResourceLogs]) -> dict[str, Any]:
+    return {
+        "resourceLogs": [
+            omit_empty(
+                {
+                    "resource": _encode_resource(rl.resource),
+                    "scopeLogs": [
+                        omit_empty(
+                            {
+                                "scope": _encode_scope(sl.scope),
+                                "logRecords": [_encode_log_record(r) for r in sl.log_records],
+                            }
+                        )
+                        for sl in rl.scope_logs
+                    ],
+                }
+            )
+            for rl in data
+        ]
+    }
+
+
 class JSONEncoder:
     """Encodes the model tree as OTLP/JSON."""
 
@@ -157,6 +204,8 @@ class JSONEncoder:
     def encode(self, kind: SignalKind, data: Sequence[Any]) -> bytes:
         if kind is SignalKind.METRICS:
             return _dumps(_encode_resource_metrics(data))
+        if kind is SignalKind.LOGS:
+            return _dumps(_encode_resource_logs(data))
         if kind is SignalKind.PROFILES:
             raise NotImplementedError(
                 "the profiles signal is still in development and is not encoded yet"
