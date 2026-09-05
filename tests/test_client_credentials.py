@@ -73,19 +73,21 @@ async def test_a_second_rejection_is_permanent_with_only_one_invalidate() -> Non
 
 
 async def test_the_reauth_budget_is_one_per_export_not_per_attempt() -> None:
-    # 503 -> retry -> 401 -> one re-auth -> 401 again. Still one invalidate for
-    # the whole export, proving the budget is scoped to _export.
+    # The re-auth resend returns Retryable, so a LATER attempt() meets a second
+    # 401. Only a per-export budget refuses to invalidate again there: with the
+    # flag scoped per attempt this would invalidate twice and send four times.
     creds = FakeCredentials([{"authorization": "t"}])
     transport = FakeTransport(
         [
-            Retryable(status=503, message="later"),
             Permanent(status=401, message="expired"),
+            Retryable(status=503, message="later"),
             Permanent(status=401, message="expired"),
         ]
     )
     with pytest.raises(OTLPPermanentError):
         await make_client(transport, creds).export_metrics(METRIC)
     assert creds.invalidated == [SignalKind.METRICS]
+    assert len(transport.sent) == 3
 
 
 async def test_a_rejection_without_a_provider_stays_permanent() -> None:
