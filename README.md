@@ -245,10 +245,13 @@ immediately, outside the retry budget. A second rejection is permanent — a
 wrong secret fails fast rather than hammering the token endpoint.
 
 **You own the provider's lifetime.** `OTLPClient.aclose()` never closes a
-provider, because one provider shared across several clients (the recommended
+provider, because one provider shared across several clients (a first-class
 pattern when signals need different protocols or TLS settings) must outlive any
-one of them. Call `await credentials.aclose()` yourself if the provider owns a
-session.
+one of them. Shut down in order: close clients and processors first, and the
+provider last. Using a provider after its `aclose()` raises a bare
+`RuntimeError: Session is closed` from aiohttp, so getting the order backwards
+breaks the very clients you closed it for. Call `await credentials.aclose()`
+yourself if the provider owns a session.
 
 The OTLP specification defines no authentication concept at all, so there is no
 `OTEL_EXPORTER_OTLP_*` variable for any of this and `OTLPConfig.from_env()`

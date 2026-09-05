@@ -294,6 +294,7 @@ does the right thing:
 | 400 or 401 with an RFC 6749 error body (`invalid_client`, `invalid_scope`, …) | `OTLPPermanentError` |
 | 5xx, timeout, connection error | `OTLPTransportError` |
 | Malformed body, or no `access_token` | `OTLPPermanentError` |
+| Malformed or non-numeric `expires_in` | `OTLPPermanentError` |
 
 **Secrets.** Exception messages carry the response's `error` and
 `error_description` fields only — never the raw body, never the client secret,

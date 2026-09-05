@@ -36,7 +36,9 @@ class CredentialProvider(Protocol):
 
         Merged over the configured static headers, winning any key collision.
         Awaited on every attempt, so an implementation that caches owns its own
-        expiry.
+        expiry. Keys must be lowercase: gRPC metadata keys must be lowercase
+        (grpcio raises otherwise), and HTTP header names are case-insensitive,
+        so lowercase is safe for both transports.
         """
         ...
 
@@ -77,6 +79,10 @@ class BasicAuth:
     """
 
     def __init__(self, username: str, password: str) -> None:
+        # RFC 7617: the raw "user:pass" is base64'd directly, no percent-
+        # encoding of either half -- deliberately different from
+        # OAuth2ClientCredentials._auth_header's RFC 6749 encoding below.
+        # Unifying the two would break whichever RFC the "unified" form drops.
         raw = f"{username}:{password}".encode()
         self._header = f"Basic {base64.b64encode(raw).decode('ascii')}"
 
