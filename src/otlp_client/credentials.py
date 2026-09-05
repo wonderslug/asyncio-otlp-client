@@ -7,6 +7,7 @@ what makes a rotating token possible without rebuilding the client.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import time
 from collections.abc import Awaitable, Callable, Mapping
@@ -14,6 +15,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from urllib.parse import quote_plus
 
+from otlp_client.errors import OTLPPermanentError, OTLPTransportError
 from otlp_client.signals import SignalKind
 
 if TYPE_CHECKING:
@@ -130,11 +132,20 @@ class OAuth2ClientCredentials:
         self._monotonic = monotonic
         self._token: str | None = None
         self._expires_at = 0.0
+        self._lock = asyncio.Lock()
 
     async def headers(self, kind: SignalKind) -> Mapping[str, str]:
-        if self._token is None or self._monotonic() >= self._expires_at - self._expiry_skew:
-            await self._refresh()
+        if self._usable():
+            return {"authorization": f"Bearer {self._token}"}
+        async with self._lock:
+            # Re-check inside the lock: a burst of concurrent exports (or of
+            # simultaneous 401s after an invalidate) collapses into one mint.
+            if not self._usable():
+                await self._refresh()
         return {"authorization": f"Bearer {self._token}"}
+
+    def _usable(self) -> bool:
+        return self._token is not None and self._monotonic() < self._expires_at - self._expiry_skew
 
     async def invalidate(self, kind: SignalKind) -> None:
         self._token = None
@@ -170,13 +181,40 @@ class OAuth2ClientCredentials:
         return self._session
 
     async def _refresh(self) -> None:
+        import aiohttp
+
         session = await self._ensure_session()
-        async with session.post(
-            self._token_url, data=self._form(), headers=self._auth_header()
-        ) as response:
-            body = await response.json(content_type=None)
-        token = body.get("access_token")
+        try:
+            async with session.post(
+                self._token_url, data=self._form(), headers=self._auth_header()
+            ) as response:
+                status = response.status
+                body = await response.json(content_type=None)
+        except (aiohttp.ClientError, TimeoutError) as exc:
+            raise OTLPTransportError(
+                f"could not reach the token endpoint: {type(exc).__name__}: {exc}"
+            ) from exc
+        except ValueError as exc:
+            # A body that is not JSON at all. Never echoed back: it may be an
+            # upstream error page carrying anything.
+            raise OTLPPermanentError("token endpoint returned a non-JSON body") from exc
+
+        if status >= 500:
+            raise OTLPTransportError(f"token endpoint returned status {status}")
+        if status >= 400:
+            # RFC 6749 section 5.2: `error` and `error_description` only. The
+            # raw body never goes into the message -- it can carry the secret
+            # back at us.
+            detail = ""
+            if isinstance(body, dict):
+                error = str(body.get("error", "unknown_error"))
+                description = body.get("error_description")
+                detail = f"{error}: {description}" if description else error
+            raise OTLPPermanentError(f"token endpoint rejected the credentials ({detail})")
+        if not isinstance(body, dict) or not body.get("access_token"):
+            raise OTLPPermanentError("token endpoint returned no access_token")
+
+        self._token = str(body["access_token"])
         expires_in = body.get("expires_in")
-        self._token = token
         ttl = float(expires_in) if expires_in is not None else self._default_ttl
         self._expires_at = self._monotonic() + ttl

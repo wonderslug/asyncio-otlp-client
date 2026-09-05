@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 from collections.abc import AsyncIterator, Awaitable, Callable
 from urllib.parse import quote_plus
@@ -9,6 +10,7 @@ from aiohttp import ClientSession, web
 from aiohttp.test_utils import TestServer
 
 from otlp_client.credentials import AuthStyle, CredentialProvider, OAuth2ClientCredentials
+from otlp_client.errors import OTLPPermanentError, OTLPTransportError
 from otlp_client.signals import SignalKind
 from tests.support.fakes import FakeClock
 
@@ -238,3 +240,124 @@ def test_the_helper_is_exported_from_the_package() -> None:
     for name in ("OAuth2ClientCredentials", "AuthStyle"):
         assert name in otlp_client.__all__
         assert hasattr(otlp_client, name)
+
+
+async def test_concurrent_calls_mint_exactly_one_token(
+    token_server: EndpointFactory,
+) -> None:
+    endpoint = TokenEndpoint()
+    url, session = await token_server(endpoint)
+    provider = OAuth2ClientCredentials(
+        token_url=url, client_id="id", client_secret="sh", session=session
+    )
+    results = await asyncio.gather(*(provider.headers(METRICS) for _ in range(10)))
+    assert len(endpoint.requests) == 1
+    assert {tuple(r.items()) for r in results} == {(("authorization", "Bearer token-1"),)}
+
+
+async def test_invalidate_forces_a_fresh_mint(token_server: EndpointFactory) -> None:
+    endpoint = TokenEndpoint()
+    url, session = await token_server(endpoint)
+    provider = OAuth2ClientCredentials(
+        token_url=url, client_id="id", client_secret="sh", session=session
+    )
+    assert await provider.headers(METRICS) == {"authorization": "Bearer token-1"}
+    await provider.invalidate(METRICS)
+    assert await provider.headers(METRICS) == {"authorization": "Bearer token-2"}
+
+
+async def test_concurrent_calls_after_an_invalidate_still_mint_once(
+    token_server: EndpointFactory,
+) -> None:
+    endpoint = TokenEndpoint()
+    url, session = await token_server(endpoint)
+    provider = OAuth2ClientCredentials(
+        token_url=url, client_id="id", client_secret="sh", session=session
+    )
+    await provider.headers(METRICS)
+    await provider.invalidate(METRICS)
+    await asyncio.gather(*(provider.headers(METRICS) for _ in range(10)))
+    assert len(endpoint.requests) == 2
+
+
+@pytest.mark.parametrize("status", [400, 401])
+async def test_an_rfc_6749_error_response_is_permanent(
+    token_server: EndpointFactory, status: int
+) -> None:
+    endpoint = TokenEndpoint(
+        status=status,
+        body={"error": "invalid_client", "error_description": "bad secret"},
+    )
+    url, session = await token_server(endpoint)
+    provider = OAuth2ClientCredentials(
+        token_url=url, client_id="id", client_secret="hunter2", session=session
+    )
+    with pytest.raises(OTLPPermanentError) as caught:
+        await provider.headers(METRICS)
+    assert "invalid_client" in str(caught.value)
+    assert "bad secret" in str(caught.value)
+
+
+async def test_a_server_error_is_transport_shaped(token_server: EndpointFactory) -> None:
+    endpoint = TokenEndpoint(status=503, body={"error": "temporarily_unavailable"})
+    url, session = await token_server(endpoint)
+    provider = OAuth2ClientCredentials(
+        token_url=url, client_id="id", client_secret="sh", session=session
+    )
+    with pytest.raises(OTLPTransportError):
+        await provider.headers(METRICS)
+
+
+async def test_an_unreachable_token_endpoint_is_transport_shaped() -> None:
+    provider = OAuth2ClientCredentials(
+        token_url="http://127.0.0.1:1/token", client_id="id", client_secret="sh"
+    )
+    with pytest.raises(OTLPTransportError):
+        await provider.headers(METRICS)
+    await provider.aclose()
+
+
+async def test_a_response_without_an_access_token_is_permanent(
+    token_server: EndpointFactory,
+) -> None:
+    endpoint = TokenEndpoint(body={"token_type": "Bearer"})
+    url, session = await token_server(endpoint)
+    provider = OAuth2ClientCredentials(
+        token_url=url, client_id="id", client_secret="sh", session=session
+    )
+    with pytest.raises(OTLPPermanentError):
+        await provider.headers(METRICS)
+
+
+async def test_a_non_json_body_is_permanent(token_server: EndpointFactory) -> None:
+    async def handle(request: web.Request) -> web.Response:
+        return web.Response(status=200, body=b"<html>not json</html>")
+
+    app = web.Application()
+    app.router.add_route("POST", "/token", handle)
+    server = TestServer(app)
+    await server.start_server()
+    session = ClientSession()
+    provider = OAuth2ClientCredentials(
+        token_url=str(server.make_url("/token")),
+        client_id="id",
+        client_secret="sh",
+        session=session,
+    )
+    with pytest.raises(OTLPPermanentError):
+        await provider.headers(METRICS)
+    await session.close()
+    await server.close()
+
+
+async def test_the_client_secret_never_appears_in_an_error(
+    token_server: EndpointFactory,
+) -> None:
+    endpoint = TokenEndpoint(status=401, body={"error": "invalid_client"})
+    url, session = await token_server(endpoint)
+    provider = OAuth2ClientCredentials(
+        token_url=url, client_id="id", client_secret="hunter2", session=session
+    )
+    with pytest.raises(OTLPPermanentError) as caught:
+        await provider.headers(METRICS)
+    assert "hunter2" not in str(caught.value)
