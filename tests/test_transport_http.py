@@ -6,8 +6,10 @@ import pytest
 from aiohttp import ClientSession, web
 from aiohttp.test_utils import TestServer
 
+from otlp_client.client import OTLPClient
 from otlp_client.config import Compression, OTLPConfig
 from otlp_client.encoding.json import JSONEncoder
+from otlp_client.model.metrics import gauge
 from otlp_client.outcomes import PartialSuccess, Permanent, Retryable, Success
 from otlp_client.signals import SignalKind
 from otlp_client.transport.http import HTTPTransport
@@ -197,3 +199,54 @@ async def test_per_signal_timeout_is_used_for_that_signal(
     transport = HTTPTransport(cfg, JSONEncoder(), session=session)
     assert transport._timeouts[SignalKind.METRICS].total == 2.5
     assert transport._timeouts[SignalKind.LOGS].total == 10.0
+
+
+async def test_a_rotating_credential_reaches_the_wire_and_survives_a_401(
+    server_factory: ServerFactory,
+) -> None:
+    # The whole path, no fakes: a 401 makes the client invalidate, re-mint, and
+    # resend, and the second request carries the new token.
+    class Rotating:
+        def __init__(self) -> None:
+            self.minted = 0
+
+        async def headers(self, kind: SignalKind) -> dict[str, str]:
+            return {"authorization": f"Bearer token-{self.minted}"}
+
+        async def invalidate(self, kind: SignalKind) -> None:
+            self.minted += 1
+
+    class RejectOnce:
+        def __init__(self) -> None:
+            self.requests: list[dict[str, str]] = []
+
+        async def handle(self, request: web.Request) -> web.Response:
+            # Lowercase the keys: aiohttp canonicalizes well-known headers
+            # (Authorization) on the wire but leaves custom ones (x-tenant)
+            # as sent, and HTTP header names are case-insensitive anyway.
+            self.requests.append({k.lower(): v for k, v in request.headers.items()})
+            await request.read()
+            if len(self.requests) == 1:
+                return web.Response(status=401, body=b"token expired")
+            return web.Response(status=200, body=b"{}")
+
+    handler = RejectOnce()
+    app = web.Application()
+    app.router.add_route("POST", "/{tail:.*}", handler.handle)
+    server = TestServer(app)
+    await server.start_server()
+    session = ClientSession()
+    base = str(server.make_url("")).rstrip("/")
+
+    config = OTLPConfig(endpoint=base, headers={"x-tenant": "acme"})
+    credentials = Rotating()
+    transport = HTTPTransport(config, JSONEncoder(), session=session)
+    client = OTLPClient(config, transport=transport, encoder=JSONEncoder(), credentials=credentials)
+    result = await client.export_metrics([gauge("t", 1.0, time_unix_nano=1)])
+
+    assert isinstance(result, Success)
+    assert [h["authorization"] for h in handler.requests] == ["Bearer token-0", "Bearer token-1"]
+    assert handler.requests[1]["x-tenant"] == "acme"
+
+    await session.close()
+    await server.close()
