@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync --all-extras
+      - run: uv run ruff check
+      - run: uv run ruff format --check
+      - run: uv run mypy
+      - run: uv run pytest -v
+
+  core-only:
+    # Proves the core install needs nothing but aiohttp. If this job fails, an
+    # optional extra leaked into the core import path.
+    #
+    # This job must NOT run `uv run pytest`: inside a uv project, `uv run` first
+    # re-syncs the environment against pyproject.toml/uv.lock, which reinstalls
+    # the default `dev` dependency-group (opentelemetry-proto, grpcio's stubs,
+    # etc.) right before the tests run - silently defeating the whole point of
+    # this job. Invoke the venv's pytest directly instead, and this job never
+    # calls `uv run` at all.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+      - name: Install the package with no extras
+        run: |
+          uv venv
+          uv pip install . pytest pytest-asyncio
+      - name: Verify no optional extra is installed
+        run: |
+          ! uv pip show grpcio 2>/dev/null
+          ! uv pip show protobuf 2>/dev/null
+          ! uv pip show opentelemetry-proto 2>/dev/null
+          ! uv pip show orjson 2>/dev/null
+      - name: Run the core-only suite
+        run: |
+          .venv/bin/pytest tests/test_core_only.py tests/test_encoding_json_metrics.py \
+                            tests/test_client.py tests/test_processor.py -v
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+      - run: uv sync --all-extras
+      - name: Start the collector
+        run: |
+          mkdir -p out && chmod 777 out
+          docker compose -f docker-compose.test.yml up -d
+      - name: Wait for the collector to accept connections
+        run: |
+          for _ in $(seq 1 30); do
+            curl -sf -X POST http://localhost:4318/v1/metrics \
+              -H 'Content-Type: application/json' -d '{}' && break
+            sleep 1
+          done
+      - run: uv run pytest -m integration -v
+      - if: always()
+        run: docker compose -f docker-compose.test.yml logs
