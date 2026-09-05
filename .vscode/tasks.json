@@ -1,0 +1,105 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "install",
+      "detail": "Sync the virtualenv with every dependency and extra (make install).",
+      "type": "shell",
+      "command": "make install",
+      "problemMatcher": []
+    },
+    {
+      "label": "test: unit suite (coverage)",
+      "detail": "Run the offline test suite with coverage (make test).",
+      "type": "shell",
+      "command": "make test",
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "test: unit suite (fast, no coverage)",
+      "detail": "Run every non-integration test without coverage instrumentation.",
+      "type": "shell",
+      "command": "uv run pytest -v --no-cov",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "test: integration suite",
+      "detail": "Start the otel-collector and run the opt-in integration suite (make test-integration).",
+      "type": "shell",
+      "command": "make test-integration",
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "collector: up",
+      "detail": "Start the otel-collector used by the integration suite.",
+      "type": "shell",
+      "command": "make collector-up",
+      "problemMatcher": []
+    },
+    {
+      "label": "collector: down",
+      "detail": "Stop the otel-collector.",
+      "type": "shell",
+      "command": "make collector-down",
+      "problemMatcher": []
+    },
+    {
+      "label": "lint: ruff check",
+      "type": "shell",
+      "command": "make lint-ruff",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "lint: ruff format check",
+      "type": "shell",
+      "command": "make lint-format",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "lint: mypy (strict)",
+      "type": "shell",
+      "command": "make lint-mypy",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "lint: all",
+      "detail": "Run ruff check, ruff format --check, and mypy (make lint).",
+      "type": "shell",
+      "command": "make lint",
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
+      "label": "format",
+      "detail": "Apply ruff --fix and ruff format.",
+      "type": "shell",
+      "command": "make format",
+      "problemMatcher": []
+    },
+    {
+      "label": "pre-commit: all files",
+      "detail": "Run every pre-commit hook against all files, matching CI's 'linting' job.",
+      "type": "shell",
+      "command": "uv run pre-commit run --all-files --show-diff-on-failure",
+      "problemMatcher": []
+    },
+    {
+      "label": "CI: replicate 'test' job",
+      "detail": "Runs the same steps as the CI 'test' job locally: ruff check, ruff format --check, mypy, then pytest with coverage.",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "lint: ruff check",
+        "lint: ruff format check",
+        "lint: mypy (strict)",
+        "test: unit suite (coverage)"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}
