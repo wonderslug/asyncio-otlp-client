@@ -34,6 +34,27 @@ class FakeTransport:
         self.closed = True
 
 
+class RaisingTransport:
+    """A Transport whose `send` raises instead of returning an outcome.
+
+    Represents a custom transport's own failure, distinct from anything a
+    credential provider could raise -- proves _export does not mislabel it.
+    """
+
+    def __init__(self, error: BaseException) -> None:
+        self._error = error
+        self.sent: list[tuple[SignalKind, bytes, Mapping[str, str]]] = []
+
+    async def send(
+        self, kind: SignalKind, payload: bytes, headers: Mapping[str, str]
+    ) -> ExportOutcome:
+        self.sent.append((kind, payload, dict(headers)))
+        raise self._error
+
+    async def aclose(self) -> None:
+        pass
+
+
 class HangingTransport:
     """A Transport whose `send` blocks on a gate the test controls.
 

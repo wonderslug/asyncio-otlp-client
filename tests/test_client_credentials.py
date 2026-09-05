@@ -10,15 +10,14 @@ from otlp_client.errors import OTLPPermanentError, OTLPTransportError
 from otlp_client.model.metrics import gauge
 from otlp_client.outcomes import Permanent, Retryable, Success
 from otlp_client.signals import SignalKind
-from tests.support.fakes import FakeClock, FakeCredentials, FakeTransport
+from otlp_client.transport.base import Transport
+from tests.support.fakes import FakeClock, FakeCredentials, FakeTransport, RaisingTransport
 
 CONFIG = OTLPConfig(endpoint="http://localhost:4318", headers={"x-tenant": "acme"})
 METRIC = [gauge("t", 1.0, time_unix_nano=1)]
 
 
-def make_client(
-    transport: FakeTransport, credentials: CredentialProvider | None = None
-) -> OTLPClient:
+def make_client(transport: Transport, credentials: CredentialProvider | None = None) -> OTLPClient:
     # FakeClock keeps the retry backoff instant while still advancing the
     # budget, so a test that exercises retries costs no wall-clock time.
     clock = FakeClock()
@@ -119,3 +118,41 @@ async def test_an_unexpected_provider_error_propagates_uncaught() -> None:
     creds = FakeCredentials([], error=KeyError("bug in the provider"))
     with pytest.raises(KeyError):
         await make_client(FakeTransport(), creds).export_metrics(METRIC)
+
+
+async def test_a_transports_own_error_is_not_reported_as_a_credential_failure() -> None:
+    # _export's header-resolution error handling must not also catch whatever
+    # a custom transport's send() raises -- that would mislabel a transport
+    # bug as "credential provider failed".
+    transport = RaisingTransport(OTLPTransportError("collector unreachable"))
+    with pytest.raises(OTLPTransportError, match="collector unreachable"):
+        await make_client(transport).export_metrics(METRIC)
+
+
+class ClosingCredentials:
+    """A CredentialProvider double that records whether its aclose() ran."""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def headers(self, kind: SignalKind) -> dict[str, str]:
+        return {}
+
+    async def invalidate(self, kind: SignalKind) -> None:
+        pass
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+async def test_client_aclose_closes_the_transport_but_not_the_provider() -> None:
+    # Spec decision 8: the client never closes a provider, since one provider
+    # shared across several clients must outlive any one of them. Asserting
+    # the transport WAS closed proves this is selective, not that aclose() is
+    # a no-op.
+    creds = ClosingCredentials()
+    transport = FakeTransport()
+    client = make_client(transport, creds)
+    await client.aclose()
+    assert transport.closed is True
+    assert creds.closed is False

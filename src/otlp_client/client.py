@@ -134,29 +134,41 @@ class OTLPClient:
 
         reauthed = False
 
+        async def resolve() -> Mapping[str, str] | ExportOutcome:
+            """Resolve headers, turning a provider's transient failure into an outcome.
+
+            Only header resolution is handled here, not the transport send: a
+            custom transport raising OTLPTransportError is its own failure, not
+            a credential provider's, and must propagate as itself rather than
+            be relabelled. A provider's OTLPPermanentError is also left
+            uncaught -- nothing reached a collector, so it must fail fast with
+            its own message rather than becoming a "collector rejected" outcome.
+            """
+            try:
+                return await self._headers(kind)
+            except OTLPTransportError as exc:
+                # A token endpoint that is briefly down is transient: ride the
+                # existing backoff rather than failing the export outright.
+                return Retryable(message=f"credential provider failed: {exc}")
+
         async def attempt() -> ExportOutcome:
             nonlocal reauthed
-            try:
-                outcome = await self._transport.send(kind, payload, await self._headers(kind))
-                if (
-                    not reauthed
-                    and self._credentials is not None
-                    and is_credential_rejection(outcome)
-                ):
-                    # One re-auth per export, outside the retry budget and
-                    # without backoff: covers a token revoked or expired between
-                    # mint and arrival, without turning a wrong secret into a
-                    # token-endpoint storm.
-                    reauthed = True
-                    await self._credentials.invalidate(kind)
-                    outcome = await self._transport.send(kind, payload, await self._headers(kind))
-                return outcome
-            except OTLPPermanentError as exc:
-                # Only a provider can raise these here; transports return
-                # outcomes. A rejected client secret must fail fast.
-                return Permanent(message=f"credential provider failed: {exc}")
-            except OTLPTransportError as exc:
-                return Retryable(message=f"credential provider failed: {exc}")
+            headers = await resolve()
+            if not isinstance(headers, Mapping):
+                return headers
+            outcome = await self._transport.send(kind, payload, headers)
+            if not reauthed and self._credentials is not None and is_credential_rejection(outcome):
+                # One re-auth per export, outside the retry budget and
+                # without backoff: covers a token revoked or expired between
+                # mint and arrival, without turning a wrong secret into a
+                # token-endpoint storm.
+                reauthed = True
+                await self._credentials.invalidate(kind)
+                headers = await resolve()
+                if not isinstance(headers, Mapping):
+                    return headers
+                outcome = await self._transport.send(kind, payload, headers)
+            return outcome
 
         outcome = await with_retry(
             attempt,
