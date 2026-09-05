@@ -14,7 +14,7 @@ Add it to `manifest.json` with no extras:
 ```json
 {
   "domain": "my_integration",
-  "requirements": ["asyncio-otlp-client==0.1.0"]
+  "requirements": ["asyncio-otlp-client==0.2.0"]
 }
 ```
 
@@ -119,6 +119,54 @@ guide should not ask a reader to reason about.
 call from `_handle` above: a state-change listener has nowhere to handle an
 exception, and `submit_metrics` returns `False` (queue full, or the processor
 is already closed) rather than raising — safe for a listener to ignore.
+
+### The `unavailable` / `unknown` case
+
+`_handle` above skips any state that fails `float(new_state.state)`, which is
+exactly what happens when an entity goes `unavailable` or `unknown` — HA
+reports those as sentinel strings, not numbers. Skipping is defensible, but it
+means a collector-side chart just stops updating with no signal as to why. If
+you want that transition visible, don't skip it: submit a data point with
+`data_point_flags(no_recorded_value=True)`, which records "no reading was
+taken" as distinct from "the sensor read zero". `gauge()` doesn't expose
+`flags`, so build the point directly:
+
+```python
+from otlp_client import Gauge, Metric, NumberDataPoint, data_point_flags
+
+
+def _handle(event: Event[EventStateChangedData]) -> None:
+    new_state = event.data["new_state"]
+    if new_state is None:
+        return
+    attributes = {"entity_id": new_state.entity_id, "domain": new_state.domain}
+    if new_state.state in ("unavailable", "unknown"):
+        point = NumberDataPoint(
+            time_unix_nano=time.time_ns(),
+            value=0.0,
+            attributes=attributes,
+            flags=data_point_flags(no_recorded_value=True),
+        )
+        processor.submit_metrics(
+            [Metric(name="homeassistant.state", data=Gauge(data_points=[point]))]
+        )
+        return
+    try:
+        value = float(new_state.state)
+    except ValueError:
+        return  # some other non-numeric state; not a metric
+    processor.submit_metrics(
+        [
+            gauge(
+                "homeassistant.state",
+                value,
+                time_unix_nano=time.time_ns(),
+                unit=new_state.attributes.get("unit_of_measurement", ""),
+                attributes=attributes,
+            )
+        ]
+    )
+```
 
 ## Surfacing client health
 

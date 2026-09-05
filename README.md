@@ -79,6 +79,52 @@ You don't have to poll `stats` to notice an outage: the first export failure in
 a run logs at `WARNING`, and consecutive failures after that log at `DEBUG` so
 a persistent outage doesn't spam your logs for as long as it lasts.
 
+## Trace context and exemplars
+
+Spans and span links carry W3C `trace_state` and `flags`; build the flags
+with the helper rather than by hand:
+
+```python
+from otlp_client import span, span_flags
+
+s = span(
+    "handle_request",
+    trace_id=trace_id,
+    span_id=span_id,
+    start_time_unix_nano=start,
+    end_time_unix_nano=end,
+    trace_state="vendor=abc",
+    flags=span_flags(sampled=True, is_remote=False),
+)
+```
+
+`is_remote=None` (the default) means "unknown", which is distinct from
+`is_remote=False`: `None` leaves both context-related bits clear, while
+`False` sets the "is-remote is known" bit without setting "is-remote" itself.
+
+Exemplars link a metric data point to the trace that produced it, so a spike
+is traceable back to the request behind it:
+
+```python
+from otlp_client import Exemplar, NumberDataPoint
+
+point = NumberDataPoint(
+    time_unix_nano=now,
+    value=1.5,
+    exemplars=[Exemplar(time_unix_nano=now, value=1.5, trace_id=trace_id, span_id=span_id)],
+)
+```
+
+A data point can also record that no measurement was taken, which is
+different from measuring zero. The `gauge()`/`sum_()` helpers don't expose
+`flags`, so set it on the dataclass directly:
+
+```python
+from otlp_client import data_point_flags
+
+point = NumberDataPoint(time_unix_nano=now, value=0, flags=data_point_flags(no_recorded_value=True))
+```
+
 ## Configuration
 
 `OTLPConfig` is the only source of settings. To read the standard environment

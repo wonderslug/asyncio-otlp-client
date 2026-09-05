@@ -114,19 +114,15 @@ Attributes are `Mapping[str, AnyValue]` where
 Mapping[str, AnyValue]`, normalized at encode time.
 
 **Known limitation — fields the proto schema defines that this model omits:**
-`InstrumentationScope`, `LogRecord`, `SpanEvent`, `SpanLink`, and the four
-data-point types are all missing `dropped_attributes_count`; `Span` is missing
-`trace_state`, `flags`, and its three dropped-counts; `SpanLink` is missing
-`trace_state` and `flags`; the data-point types are missing `exemplars` and
-`flags`; and `HistogramDataPoint` lacks the `min`/`max` that
-`ExponentialHistogramDataPoint` has. Most of these are bookkeeping fields
-(dropped-counts, flags) a client that never drops or samples has no reason to
-set. Two are real capability gaps rather than bookkeeping, worth calling out
-on their own: **`trace_state`** — this client cannot carry a span's W3C
-tracestate through the model at all — and **`exemplars`** — metric data
-points cannot attach exemplar traces to their measurements. Extending the
-model to cover these is a deliberate scope decision left for later, not an
-oversight to fix reflexively.
+`InstrumentationScope`, `LogRecord`, `SpanEvent`, and `SpanLink` are all
+missing `dropped_attributes_count`; `Span` is missing all three of
+`dropped_attributes_count`, `dropped_events_count`, and `dropped_links_count`.
+(The metric data-point types carry no such field in the proto to begin with,
+so there is nothing to omit there.) This client enforces no limits and drops
+nothing — attributes are never truncated, and events and links are never
+discarded — so on every type that has these fields, they would only ever be
+hardcoded to zero. They are left out rather than modeled as an always-0 field
+that could mislead a reader into thinking this client samples or truncates.
 
 Because building that tree by hand for a single reading is five levels of
 nesting, `model/` also ships thin constructors for common cases:
