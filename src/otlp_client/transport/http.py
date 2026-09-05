@@ -48,7 +48,9 @@ class HTTPTransport:
         self._session = session
         self._owns_session = owns_session
         self._ssl = ssl_context
-        self._timeout = aiohttp.ClientTimeout(total=config.timeout)
+        self._timeouts = {
+            kind: aiohttp.ClientTimeout(total=config.timeout_for(kind)) for kind in SignalKind
+        }
 
     @classmethod
     async def create(
@@ -80,9 +82,9 @@ class HTTPTransport:
         return gzip.compress(payload)
 
     async def send(self, kind: SignalKind, payload: bytes) -> ExportOutcome:
-        headers = {**self._config.headers, "Content-Type": self._encoder.content_type}
+        headers = {**self._config.headers_for(kind), "Content-Type": self._encoder.content_type}
         body = payload
-        if self._config.compression is Compression.GZIP:
+        if self._config.compression_for(kind) is Compression.GZIP:
             body = await self._compress(payload)
             headers["Content-Encoding"] = "gzip"
 
@@ -91,7 +93,7 @@ class HTTPTransport:
                 self._config.endpoint_for(kind),
                 data=body,
                 headers=headers,
-                timeout=self._timeout,
+                timeout=self._timeouts[kind],
                 ssl=self._ssl if self._ssl is not None else True,
             ) as response:
                 raw = await response.read()

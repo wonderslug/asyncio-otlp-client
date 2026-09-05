@@ -151,3 +151,53 @@ async def test_created_session_is_owned_and_closed() -> None:
     session = transport._session
     await transport.aclose()
     assert session.closed is True
+
+
+async def test_per_signal_headers_replace_the_general_ones(
+    server_factory: ServerFactory,
+) -> None:
+    rec = Recorder()
+    base, session = await server_factory(rec)
+    cfg = OTLPConfig(
+        endpoint=base,
+        headers={"api-key": "secret"},
+        traces_headers={"x-tenant": "acme"},
+    )
+    transport = HTTPTransport(cfg, JSONEncoder(), session=session)
+    await transport.send(SignalKind.TRACES, b"{}")
+    await transport.send(SignalKind.METRICS, b"{}")
+    traces_headers = rec.requests[0][1]
+    metrics_headers = rec.requests[1][1]
+    assert traces_headers["x-tenant"] == "acme"
+    assert "api-key" not in traces_headers
+    assert metrics_headers["api-key"] == "secret"
+
+
+async def test_per_signal_compression_applies_to_that_signal_only(
+    server_factory: ServerFactory,
+) -> None:
+    rec = Recorder()
+    base, session = await server_factory(rec)
+    cfg = OTLPConfig(endpoint=base, logs_compression=Compression.GZIP)
+    transport = HTTPTransport(cfg, JSONEncoder(), session=session)
+    await transport.send(SignalKind.LOGS, b'{"resourceLogs":[]}')
+    await transport.send(SignalKind.METRICS, b'{"resourceMetrics":[]}')
+    logs_headers, logs_body = rec.requests[0][1], rec.requests[0][2]
+    metrics_headers = rec.requests[1][1]
+    assert logs_headers["Content-Encoding"] == "gzip"
+    assert gzip.decompress(logs_body) == b'{"resourceLogs":[]}'
+    assert "Content-Encoding" not in metrics_headers
+
+
+async def test_per_signal_timeout_is_used_for_that_signal(
+    server_factory: ServerFactory,
+) -> None:
+    # White-box on purpose: asserting a real timeout would need a deliberately
+    # slow server, and the behaviour worth pinning here is that the transport
+    # builds one ClientTimeout per signal from timeout_for.
+    rec = Recorder()
+    base, session = await server_factory(rec)
+    cfg = OTLPConfig(endpoint=base, timeout=10.0, metrics_timeout=2.5)
+    transport = HTTPTransport(cfg, JSONEncoder(), session=session)
+    assert transport._timeouts[SignalKind.METRICS].total == 2.5
+    assert transport._timeouts[SignalKind.LOGS].total == 10.0
