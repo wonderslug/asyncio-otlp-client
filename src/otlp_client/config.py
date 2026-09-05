@@ -27,6 +27,16 @@ class Compression(StrEnum):
     GZIP = "gzip"
 
 
+# Per the OTLP spec, OTLP/gRPC and OTLP/HTTP have different default ports.
+_DEFAULT_ENDPOINTS: Mapping[OTLPProtocol, str] = MappingProxyType(
+    {
+        OTLPProtocol.HTTP_JSON: "http://localhost:4318",
+        OTLPProtocol.HTTP_PROTOBUF: "http://localhost:4318",
+        OTLPProtocol.GRPC: "http://localhost:4317",
+    }
+)
+
+
 @dataclass(frozen=True, slots=True)
 class OTLPConfig:
     """Every knob the client reads. The only source of settings."""
@@ -89,7 +99,7 @@ class OTLPConfig:
             raise OTLPConfigError(f"invalid timeout {timeout_ms!r}") from exc
 
         return cls(
-            endpoint=src.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318"),
+            endpoint=src.get("OTEL_EXPORTER_OTLP_ENDPOINT", _DEFAULT_ENDPOINTS[protocol]),
             protocol=protocol,
             headers=_parse_headers(src.get("OTEL_EXPORTER_OTLP_HEADERS", "")),
             timeout=timeout,

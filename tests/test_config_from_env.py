@@ -76,3 +76,30 @@ def test_missing_endpoint_defaults_to_localhost() -> None:
 def test_unknown_protocol_is_rejected() -> None:
     with pytest.raises(OTLPConfigError, match="protocol"):
         OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_PROTOCOL": "carrier-pigeon"})
+
+
+def test_grpc_protocol_defaults_to_the_grpc_port() -> None:
+    cfg = OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_PROTOCOL": "grpc"})
+    assert cfg.endpoint == "http://localhost:4317"
+
+
+def test_http_protobuf_protocol_defaults_to_the_http_port() -> None:
+    cfg = OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf"})
+    assert cfg.endpoint == "http://localhost:4318"
+
+
+def test_explicit_endpoint_still_wins_over_the_grpc_default() -> None:
+    cfg = OTLPConfig.from_env(
+        {
+            "OTEL_EXPORTER_OTLP_PROTOCOL": "grpc",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "https://collector.local:9999",
+        }
+    )
+    assert cfg.endpoint == "https://collector.local:9999"
+
+
+def test_explicitly_empty_endpoint_is_rejected_rather_than_defaulted() -> None:
+    with pytest.raises(OTLPConfigError, match="endpoint"):
+        OTLPConfig.from_env(
+            {"OTEL_EXPORTER_OTLP_PROTOCOL": "grpc", "OTEL_EXPORTER_OTLP_ENDPOINT": ""}
+        )
