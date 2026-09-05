@@ -22,7 +22,7 @@ class SeverityNumber(IntEnum):
     FATAL = 21
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class LogRecord:
     time_unix_nano: int
     body: AnyValue
@@ -35,13 +35,13 @@ class LogRecord:
     flags: int = 0
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ScopeLogs:
     scope: InstrumentationScope
     log_records: Sequence[LogRecord]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ResourceLogs:
     resource: Resource
     scope_logs: Sequence[ScopeLogs]

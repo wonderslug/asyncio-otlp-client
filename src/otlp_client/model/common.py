@@ -11,7 +11,7 @@ type AnyValue = str | bool | int | float | bytes | Sequence["AnyValue"] | Mappin
 _EMPTY: Mapping[str, AnyValue] = MappingProxyType({})
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Resource:
     """The entity producing telemetry."""
 
@@ -19,7 +19,7 @@ class Resource:
     dropped_attributes_count: int = 0
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class InstrumentationScope:
     """The library or component that emitted a signal."""
 

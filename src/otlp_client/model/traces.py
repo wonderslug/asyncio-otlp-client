@@ -27,27 +27,27 @@ class StatusCode(IntEnum):
     ERROR = 2
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Status:
     code: StatusCode = StatusCode.UNSET
     message: str = ""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class SpanEvent:
     time_unix_nano: int
     name: str
     attributes: Mapping[str, AnyValue] = field(default=_EMPTY, hash=False)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class SpanLink:
     trace_id: bytes
     span_id: bytes
     attributes: Mapping[str, AnyValue] = field(default=_EMPTY, hash=False)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Span:
     trace_id: bytes
     span_id: bytes
@@ -62,13 +62,13 @@ class Span:
     status: Status | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ScopeSpans:
     scope: InstrumentationScope
     spans: Sequence[Span]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ResourceSpans:
     resource: Resource
     scope_spans: Sequence[ScopeSpans]

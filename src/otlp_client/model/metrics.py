@@ -18,7 +18,7 @@ class AggregationTemporality(IntEnum):
     CUMULATIVE = 2
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class NumberDataPoint:
     time_unix_nano: int
     value: int | float
@@ -26,7 +26,7 @@ class NumberDataPoint:
     start_time_unix_nano: int | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class HistogramDataPoint:
     time_unix_nano: int
     count: int
@@ -37,25 +37,25 @@ class HistogramDataPoint:
     start_time_unix_nano: int | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Gauge:
     data_points: Sequence[NumberDataPoint]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Sum:
     data_points: Sequence[NumberDataPoint]
     aggregation_temporality: AggregationTemporality = AggregationTemporality.CUMULATIVE
     is_monotonic: bool = True
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Histogram:
     data_points: Sequence[HistogramDataPoint]
     aggregation_temporality: AggregationTemporality = AggregationTemporality.CUMULATIVE
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Buckets:
     """One side of an exponential histogram."""
 
@@ -63,7 +63,7 @@ class Buckets:
     bucket_counts: Sequence[int] = ()
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ExponentialHistogramDataPoint:
     time_unix_nano: int
     count: int
@@ -78,19 +78,19 @@ class ExponentialHistogramDataPoint:
     start_time_unix_nano: int | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ExponentialHistogram:
     data_points: Sequence[ExponentialHistogramDataPoint]
     aggregation_temporality: AggregationTemporality = AggregationTemporality.CUMULATIVE
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ValueAtQuantile:
     quantile: float
     value: float
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class SummaryDataPoint:
     time_unix_nano: int
     count: int
@@ -100,7 +100,7 @@ class SummaryDataPoint:
     start_time_unix_nano: int | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Summary:
     """Legacy metric type. The proto carries no aggregation temporality."""
 
@@ -110,7 +110,7 @@ class Summary:
 type MetricData = Gauge | Sum | Histogram | ExponentialHistogram | Summary
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Metric:
     name: str
     data: MetricData
@@ -118,13 +118,13 @@ class Metric:
     unit: str = ""
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ScopeMetrics:
     scope: InstrumentationScope
     metrics: Sequence[Metric]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ResourceMetrics:
     resource: Resource
     scope_metrics: Sequence[ScopeMetrics]
