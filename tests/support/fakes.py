@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 
 from otlp_client.outcomes import ExportOutcome, Success
@@ -29,6 +30,27 @@ class FakeTransport:
 
     async def aclose(self) -> None:
         self.closed = True
+
+
+class HangingTransport:
+    """A Transport whose `send` blocks on a gate the test controls.
+
+    Lets a test suspend an export mid-flight and cancel the task awaiting it
+    -- e.g. to exercise `BatchProcessor.flush()` racing shutdown cancellation
+    -- with no real I/O and no wall-clock wait.
+    """
+
+    def __init__(self) -> None:
+        self.gate = asyncio.Event()
+        self.sent: list[tuple[SignalKind, bytes]] = []
+
+    async def send(self, kind: SignalKind, payload: bytes) -> ExportOutcome:
+        self.sent.append((kind, payload))
+        await self.gate.wait()
+        return Success()
+
+    async def aclose(self) -> None:
+        pass
 
 
 class FakeClock:

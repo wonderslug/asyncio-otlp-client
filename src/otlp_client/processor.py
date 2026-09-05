@@ -156,6 +156,15 @@ class BatchProcessor:
                     continue
                 try:
                     partial = await self._export_batch(kind, batch)
+                except asyncio.CancelledError:
+                    # The batch was already drained from the queue, so if we
+                    # don't count it here it vanishes without ever being
+                    # counted as dropped -- contradicting the documented
+                    # invariant that `dropped` counts every record that never
+                    # reached the collector, whatever the cause. Cancellation
+                    # itself must still propagate: never swallow it.
+                    self._dropped += len(batch)
+                    raise
                 except Exception as exc:  # noqa: BLE001 - never let export crash the loop
                     self._consecutive_failures += 1
                     self._last_error = str(exc)

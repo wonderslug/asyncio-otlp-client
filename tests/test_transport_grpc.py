@@ -7,7 +7,7 @@ pytest.importorskip("grpc")
 import grpc
 from grpc import aio
 
-from otlp_client.config import OTLPConfig, OTLPProtocol
+from otlp_client.config import Compression, OTLPConfig, OTLPProtocol
 from otlp_client.encoding.protobuf import build_protobuf_encoder
 from otlp_client.errors import OTLPConfigError
 from otlp_client.outcomes import Permanent, Retryable, Success
@@ -163,3 +163,53 @@ async def test_insecure_skip_verify_is_harmless_on_a_plaintext_target() -> None:
     )
     transport = await GRPCTransport.create(config, build_protobuf_encoder())
     await transport.aclose()
+
+
+async def test_gzip_compression_round_trips_successfully(grpc_server: ServerFactory) -> None:
+    # Wiring compression=grpc.Compression.Gzip onto the call must not change
+    # behavior against a well-behaved server: the payload still arrives and
+    # the response still decodes, exactly like an uncompressed call.
+    handler = EchoHandler()
+    target = await grpc_server(handler)
+    config = OTLPConfig(
+        endpoint=f"http://{target}", protocol=OTLPProtocol.GRPC, compression=Compression.GZIP
+    )
+    transport = await GRPCTransport.create(config, build_protobuf_encoder())
+    result = await transport.send(SignalKind.METRICS, b"payload-bytes")
+    assert isinstance(result, Success)
+    assert handler.received == [(METRICS_METHOD, b"payload-bytes")]
+    await transport.aclose()
+
+
+async def test_metrics_endpoint_override_is_rejected_over_grpc() -> None:
+    # A single gRPC channel targets one host; the signal is already selected
+    # by the RPC method path. Silently ignoring these fields (as the HTTP-only
+    # endpoint_for() plumbing would otherwise let happen) would route traffic
+    # to the wrong place with no indication anything was wrong.
+    config = OTLPConfig(
+        endpoint="http://127.0.0.1:4317",
+        protocol=OTLPProtocol.GRPC,
+        metrics_endpoint="https://elsewhere.example",
+    )
+    with pytest.raises(OTLPConfigError, match="per-signal endpoint"):
+        await GRPCTransport.create(config, build_protobuf_encoder())
+
+
+async def test_logs_endpoint_override_is_rejected_over_grpc() -> None:
+    config = OTLPConfig(
+        endpoint="http://127.0.0.1:4317",
+        protocol=OTLPProtocol.GRPC,
+        logs_endpoint="https://elsewhere.example",
+    )
+    with pytest.raises(OTLPConfigError, match="per-signal endpoint"):
+        await GRPCTransport.create(config, build_protobuf_encoder())
+
+
+async def test_traces_endpoint_override_is_rejected_over_grpc() -> None:
+    config = OTLPConfig(
+        endpoint="http://127.0.0.1:4317",
+        protocol=OTLPProtocol.GRPC,
+        traces_endpoint="https://elsewhere.example",
+    )
+    with pytest.raises(OTLPConfigError, match="per-signal endpoint"):
+        await GRPCTransport.create(config, build_protobuf_encoder())

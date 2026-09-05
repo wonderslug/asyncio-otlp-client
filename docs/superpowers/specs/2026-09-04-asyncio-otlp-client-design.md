@@ -102,7 +102,8 @@ transport with no network.
 
 ## Data model
 
-Frozen, slotted dataclasses mirroring the OTLP proto tree exactly:
+Frozen, slotted dataclasses covering the fields this client sets, shaped after
+the OTLP proto tree but **not a field-for-field mirror of it**:
 `ResourceMetrics -> ScopeMetrics -> Metric -> {Gauge | Sum | Histogram |
 ExponentialHistogram | Summary} -> NumberDataPoint`, with equivalents for logs
 (`ResourceLogs -> ScopeLogs -> LogRecord`) and traces (`ResourceSpans ->
@@ -111,6 +112,21 @@ ScopeSpans -> Span`).
 Attributes are `Mapping[str, AnyValue]` where
 `AnyValue = str | bool | int | float | bytes | Sequence[AnyValue] |
 Mapping[str, AnyValue]`, normalized at encode time.
+
+**Known limitation — fields the proto schema defines that this model omits:**
+`InstrumentationScope`, `LogRecord`, `SpanEvent`, `SpanLink`, and the four
+data-point types are all missing `dropped_attributes_count`; `Span` is missing
+`trace_state`, `flags`, and its three dropped-counts; `SpanLink` is missing
+`trace_state` and `flags`; the data-point types are missing `exemplars` and
+`flags`; and `HistogramDataPoint` lacks the `min`/`max` that
+`ExponentialHistogramDataPoint` has. Most of these are bookkeeping fields
+(dropped-counts, flags) a client that never drops or samples has no reason to
+set. Two are real capability gaps rather than bookkeeping, worth calling out
+on their own: **`trace_state`** — this client cannot carry a span's W3C
+tracestate through the model at all — and **`exemplars`** — metric data
+points cannot attach exemplar traces to their measurements. Extending the
+model to cover these is a deliberate scope decision left for later, not an
+oversight to fix reflexively.
 
 Because building that tree by hand for a single reading is five levels of
 nesting, `model/` also ships thin constructors for common cases:

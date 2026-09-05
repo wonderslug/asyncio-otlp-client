@@ -296,68 +296,10 @@ def test_profiles_is_not_implemented() -> None:
         build_protobuf_encoder().encode(SignalKind.PROFILES, [])
 
 
-def _imports_opentelemetry_at_module_level(source: str) -> bool:
-    """True if `source` imports anything under `opentelemetry` at module level.
-
-    Recurses into module-level compound statements (`if`/`try`/`with`/`for`/
-    `while`, and their async variants) since those execute at import time too,
-    but stops at `FunctionDef`/`AsyncFunctionDef`/`ClassDef` — imports inside
-    those are exactly what a module with a lazily-imported extra is supposed
-    to contain. A plain `ast.walk` would descend into those bodies too and
-    produce false positives.
-    """
-    import ast
-
-    def is_opentelemetry_import(node: ast.stmt) -> bool:
-        if not isinstance(node, ast.Import | ast.ImportFrom):
-            return False
-        name = getattr(node, "module", "") or ""
-        names = " ".join(alias.name for alias in node.names)
-        return "opentelemetry" in name + names
-
-    def walk(nodes: list[ast.stmt]) -> bool:
-        for node in nodes:
-            if is_opentelemetry_import(node):
-                return True
-            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
-                continue  # lazy imports live here by design; do not descend
-            if isinstance(node, ast.If | ast.For | ast.AsyncFor | ast.While):
-                if walk(node.body) or walk(node.orelse):
-                    return True
-            elif isinstance(node, ast.Try):
-                if (
-                    walk(node.body)
-                    or walk(node.orelse)
-                    or walk(node.finalbody)
-                    or any(walk(handler.body) for handler in node.handlers)
-                ):
-                    return True
-            elif isinstance(node, ast.With | ast.AsyncWith) and walk(node.body):
-                return True
-        return False
-
-    return walk(ast.parse(source).body)
-
-
-def test_module_does_not_import_protobuf_at_top_level() -> None:
-    import pathlib
-
-    source = pathlib.Path("src/otlp_client/encoding/protobuf.py").read_text()
-    assert not _imports_opentelemetry_at_module_level(source), (
-        "opentelemetry.proto must be imported lazily, not at module level"
-    )
-
-
-def test_the_module_level_import_checker_catches_a_try_wrapped_import() -> None:
-    # A natural "cache the availability probe" refactor: this executes at
-    # module-import time even though it never appears as a top-level
-    # Import/ImportFrom node, which is exactly the gap being closed here.
-    snippet = (
-        "try:\n    import opentelemetry.proto.common.v1.common_pb2\nexcept ImportError:\n    pass\n"
-    )
-    assert _imports_opentelemetry_at_module_level(snippet)
-
-
-def test_the_module_level_import_checker_allows_a_lazy_import_inside_a_function() -> None:
-    snippet = "def f() -> None:\n    import opentelemetry.proto.common.v1.common_pb2\n"
-    assert not _imports_opentelemetry_at_module_level(snippet)
+# The "does this module import a forbidden extra at module level" AST guard
+# used to live here, scoped to this one file. It has moved to
+# tests/test_core_only.py and now scans every module under src/otlp_client/
+# (transport/grpc.py included), and it no longer sits behind this file's
+# `pytest.importorskip("opentelemetry.proto")` -- a static AST scan needs no
+# extras installed to run, and skipping it in a core-only environment is
+# exactly the gap the reviewer found.

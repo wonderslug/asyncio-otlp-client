@@ -125,6 +125,35 @@ def test_decode_full_success_returns_none() -> None:
     assert JSONEncoder().decode_response(SignalKind.METRICS, b"") is None
 
 
+def test_decode_partial_success_with_non_numeric_rejected_count_does_not_raise() -> None:
+    # A collector could hand back junk in this field; decode_response's job is
+    # to tolerate it, not raise a bare ValueError past the OTLPError contract.
+    body = json.dumps(
+        {"partialSuccess": {"rejectedDataPoints": "not-a-number", "errorMessage": "bad unit"}}
+    ).encode()
+    result = JSONEncoder().decode_response(SignalKind.METRICS, body)
+    assert result is not None
+    assert result.rejected == 0
+    assert result.message == "bad unit"
+
+
+def test_decode_partial_success_with_structurally_odd_rejected_count_does_not_raise() -> None:
+    body = json.dumps(
+        {"partialSuccess": {"rejectedDataPoints": {"nested": "dict"}, "errorMessage": "odd"}}
+    ).encode()
+    result = JSONEncoder().decode_response(SignalKind.METRICS, body)
+    assert result is not None
+    assert result.rejected == 0
+    assert result.message == "odd"
+
+    body_list = json.dumps(
+        {"partialSuccess": {"rejectedDataPoints": [1, 2, 3], "errorMessage": "odd list"}}
+    ).encode()
+    result_list = JSONEncoder().decode_response(SignalKind.METRICS, body_list)
+    assert result_list is not None
+    assert result_list.rejected == 0
+
+
 def test_profiles_is_a_defined_seam_that_is_not_yet_implemented() -> None:
     with pytest.raises(NotImplementedError, match="profiles"):
         JSONEncoder().encode(SignalKind.PROFILES, [])

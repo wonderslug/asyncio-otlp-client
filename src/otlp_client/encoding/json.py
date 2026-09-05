@@ -366,7 +366,11 @@ class JSONEncoder:
             SignalKind.TRACES: "rejectedSpans",
             SignalKind.PROFILES: "rejectedProfiles",
         }[kind]
+        try:
+            rejected = int(partial.get(rejected_key, 0))
+        except (TypeError, ValueError):
+            rejected = 0
         return PartialSuccess(
-            rejected=int(partial.get(rejected_key, 0)),
+            rejected=rejected,
             message=str(partial.get("errorMessage", "")),
         )

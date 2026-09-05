@@ -10,7 +10,7 @@ import asyncio
 from typing import Any
 from urllib.parse import urlparse
 
-from otlp_client.config import OTLPConfig
+from otlp_client.config import Compression, OTLPConfig
 from otlp_client.encoding.base import Encoder
 from otlp_client.errors import OTLPConfigError
 from otlp_client.outcomes import ExportOutcome, Permanent, Retryable, Success
@@ -77,6 +77,14 @@ class GRPCTransport:
                 "to disable certificate verification. Use certificate_file to trust a "
                 "self-signed CA, or switch to an http:// endpoint."
             )
+        if config.metrics_endpoint or config.logs_endpoint or config.traces_endpoint:
+            raise OTLPConfigError(
+                "per-signal endpoint overrides (metrics_endpoint/logs_endpoint/"
+                "traces_endpoint) are not supported over gRPC: a single gRPC channel "
+                "targets one host and the signal is already selected by the RPC "
+                "method path. Use separate OTLPClient instances (one per signal, "
+                "each with its own endpoint) if you need this."
+            )
         options = [("grpc.primary_user_agent", "asyncio-otlp-client")]
         if plaintext:
             channel = aio.insecure_channel(target, options=options)
@@ -100,6 +108,7 @@ class GRPCTransport:
         return Permanent(message=message)
 
     async def send(self, kind: SignalKind, payload: bytes) -> ExportOutcome:
+        import grpc
         from grpc.aio import AioRpcError
 
         call = self._channel.unary_unary(
@@ -108,8 +117,13 @@ class GRPCTransport:
             response_deserializer=lambda value: value,
         )
         metadata = tuple(self._config.headers.items())
+        compression = (
+            grpc.Compression.Gzip if self._config.compression is Compression.GZIP else None
+        )
         try:
-            raw = await call(payload, timeout=self._config.timeout, metadata=metadata)
+            raw = await call(
+                payload, timeout=self._config.timeout, metadata=metadata, compression=compression
+            )
         except AioRpcError as exc:
             return self._classify(exc)
         partial = self._encoder.decode_response(kind, raw)

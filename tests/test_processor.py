@@ -10,12 +10,13 @@ from otlp_client.model.common import Resource
 from otlp_client.model.metrics import Metric, gauge
 from otlp_client.outcomes import Permanent, Success
 from otlp_client.processor import BatchProcessor
-from tests.support.fakes import FakeTransport
+from otlp_client.transport.base import Transport
+from tests.support.fakes import FakeTransport, HangingTransport
 
 CONFIG = OTLPConfig(endpoint="http://localhost:4318", resource=Resource(attributes={"a": "b"}))
 
 
-def make_client(transport: FakeTransport) -> OTLPClient:
+def make_client(transport: Transport) -> OTLPClient:
     return OTLPClient(CONFIG, transport=transport, encoder=JSONEncoder())
 
 
@@ -198,6 +199,28 @@ async def test_flushed_event_reflects_a_real_subsequent_flush() -> None:
             await proc.flushed.wait()
         assert len(transport.sent) == 2
         assert proc.stats.exported == 2
+
+
+async def test_cancellation_mid_export_counts_the_drained_batch_as_dropped() -> None:
+    """A batch is drained from the queue before its export is awaited. If
+    something (shutdown, in practice) cancels the flush task while that
+    export is in flight, the already-drained batch must still be counted in
+    `stats.dropped` -- otherwise it vanishes without ever reaching the
+    collector *or* being accounted for, contradicting the documented
+    invariant that `dropped` counts every record lost for any reason.
+    Cancellation itself must still propagate, never be swallowed.
+    """
+    transport = HangingTransport()
+    proc = BatchProcessor(make_client(transport), flush_interval=3600.0)
+    proc.submit_metrics(one())
+    task = asyncio.ensure_future(proc.flush())
+    await asyncio.sleep(0)  # let flush() reach the export and block on the gate
+    assert transport.sent, "the export must have started before we cancel it"
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert proc.stats.dropped == 1
+    assert proc.stats.exported == 0
 
 
 async def test_first_failure_logs_at_warning_later_failures_at_debug(
