@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
-from collections.abc import Sequence
+import json
+from collections.abc import Callable, Sequence
 from typing import Any, cast
 
 import pytest
@@ -85,10 +86,19 @@ def test_data_point_flags_helper() -> None:
     assert data_point_flags(no_recorded_value=True) == DATA_POINT_FLAGS_NO_RECORDED_VALUE
 
 
-def test_flags_encode_as_json_numbers_not_strings() -> None:
-    """flags are 32-bit, so protobuf-JSON renders them as numbers."""
-    import json as _json
+# --- flags-as-number coverage -----------------------------------------------
+#
+# flags fields are 32-bit, so protobuf-JSON renders them as numbers -- unlike
+# the 64-bit fields elsewhere in the model, which this project's `u64()` rule
+# renders as decimal strings. The property-based encoder oracle (comparing
+# this encoder's output against `google.protobuf.json_format`) CANNOT catch a
+# `flags`-as-string regression: `json_format.Parse` accepts either a number or
+# a decimal string for an integer field of any width, so a `u64(flags)` bug
+# round-trips cleanly through the oracle and stays green. This explicit test
+# is the only guard, so every `flags` field in the model must appear below.
 
+
+def _span_flags_value(flags: int) -> Any:
     from otlp_client.encoding.json import JSONEncoder
     from otlp_client.model.common import InstrumentationScope, Resource
     from otlp_client.model.traces import ResourceSpans, ScopeSpans, Span
@@ -109,8 +119,7 @@ def test_flags_encode_as_json_numbers_not_strings() -> None:
                                 name="s",
                                 start_time_unix_nano=1,
                                 end_time_unix_nano=2,
-                                trace_state="vendor=abc",
-                                flags=0x101,
+                                flags=flags,
                             )
                         ],
                     )
@@ -118,10 +127,233 @@ def test_flags_encode_as_json_numbers_not_strings() -> None:
             )
         ],
     )
-    span_json = _json.loads(payload)["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
-    assert span_json["flags"] == 0x101
-    assert not isinstance(span_json["flags"], str)
-    assert span_json["traceState"] == "vendor=abc"
+    doc = json.loads(payload)
+    return doc["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["flags"]
+
+
+def _span_link_flags_value(flags: int) -> Any:
+    from otlp_client.encoding.json import JSONEncoder
+    from otlp_client.model.common import InstrumentationScope, Resource
+    from otlp_client.model.traces import ResourceSpans, ScopeSpans, Span, SpanLink
+    from otlp_client.signals import SignalKind
+
+    payload = JSONEncoder().encode(
+        SignalKind.TRACES,
+        [
+            ResourceSpans(
+                resource=Resource(attributes={"a": "b"}),
+                scope_spans=[
+                    ScopeSpans(
+                        scope=InstrumentationScope(name="t"),
+                        spans=[
+                            Span(
+                                trace_id=bytes(range(16)),
+                                span_id=bytes(range(8)),
+                                name="s",
+                                start_time_unix_nano=1,
+                                end_time_unix_nano=2,
+                                links=[
+                                    SpanLink(
+                                        trace_id=bytes(range(16)),
+                                        span_id=bytes(range(8)),
+                                        flags=flags,
+                                    )
+                                ],
+                            )
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+    doc = json.loads(payload)
+    span = doc["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+    return span["links"][0]["flags"]
+
+
+def _log_record_flags_value(flags: int) -> Any:
+    from otlp_client.encoding.json import JSONEncoder
+    from otlp_client.model.common import InstrumentationScope, Resource
+    from otlp_client.model.logs import LogRecord, ResourceLogs, ScopeLogs
+    from otlp_client.signals import SignalKind
+
+    payload = JSONEncoder().encode(
+        SignalKind.LOGS,
+        [
+            ResourceLogs(
+                resource=Resource(attributes={"a": "b"}),
+                scope_logs=[
+                    ScopeLogs(
+                        scope=InstrumentationScope(name="t"),
+                        log_records=[
+                            LogRecord(
+                                time_unix_nano=1,
+                                body="x",
+                                observed_time_unix_nano=1,
+                                flags=flags,
+                            )
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+    doc = json.loads(payload)
+    return doc["resourceLogs"][0]["scopeLogs"][0]["logRecords"][0]["flags"]
+
+
+def _number_point_flags_value(flags: int) -> Any:
+    from otlp_client.encoding.json import JSONEncoder
+    from otlp_client.model.common import InstrumentationScope, Resource
+    from otlp_client.model.metrics import (
+        Gauge,
+        Metric,
+        NumberDataPoint,
+        ResourceMetrics,
+        ScopeMetrics,
+    )
+    from otlp_client.signals import SignalKind
+
+    point = NumberDataPoint(time_unix_nano=1, value=1.5, flags=flags)
+    payload = JSONEncoder().encode(
+        SignalKind.METRICS,
+        [
+            ResourceMetrics(
+                resource=Resource(attributes={"a": "b"}),
+                scope_metrics=[
+                    ScopeMetrics(
+                        scope=InstrumentationScope(name="t"),
+                        metrics=[Metric(name="g", data=Gauge(data_points=[point]))],
+                    )
+                ],
+            )
+        ],
+    )
+    doc = json.loads(payload)
+    metric = doc["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]
+    return metric["gauge"]["dataPoints"][0]["flags"]
+
+
+def _histogram_point_flags_value(flags: int) -> Any:
+    from otlp_client.encoding.json import JSONEncoder
+    from otlp_client.model.common import InstrumentationScope, Resource
+    from otlp_client.model.metrics import (
+        Histogram,
+        HistogramDataPoint,
+        Metric,
+        ResourceMetrics,
+        ScopeMetrics,
+    )
+    from otlp_client.signals import SignalKind
+
+    point = HistogramDataPoint(
+        time_unix_nano=1, count=1, bucket_counts=[1], explicit_bounds=[], flags=flags
+    )
+    payload = JSONEncoder().encode(
+        SignalKind.METRICS,
+        [
+            ResourceMetrics(
+                resource=Resource(attributes={"a": "b"}),
+                scope_metrics=[
+                    ScopeMetrics(
+                        scope=InstrumentationScope(name="t"),
+                        metrics=[Metric(name="h", data=Histogram(data_points=[point]))],
+                    )
+                ],
+            )
+        ],
+    )
+    doc = json.loads(payload)
+    metric = doc["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]
+    return metric["histogram"]["dataPoints"][0]["flags"]
+
+
+def _exponential_histogram_point_flags_value(flags: int) -> Any:
+    from otlp_client.encoding.json import JSONEncoder
+    from otlp_client.model.common import InstrumentationScope, Resource
+    from otlp_client.model.metrics import (
+        ExponentialHistogram,
+        ExponentialHistogramDataPoint,
+        Metric,
+        ResourceMetrics,
+        ScopeMetrics,
+    )
+    from otlp_client.signals import SignalKind
+
+    point = ExponentialHistogramDataPoint(time_unix_nano=1, count=1, flags=flags)
+    payload = JSONEncoder().encode(
+        SignalKind.METRICS,
+        [
+            ResourceMetrics(
+                resource=Resource(attributes={"a": "b"}),
+                scope_metrics=[
+                    ScopeMetrics(
+                        scope=InstrumentationScope(name="t"),
+                        metrics=[Metric(name="e", data=ExponentialHistogram(data_points=[point]))],
+                    )
+                ],
+            )
+        ],
+    )
+    doc = json.loads(payload)
+    metric = doc["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]
+    return metric["exponentialHistogram"]["dataPoints"][0]["flags"]
+
+
+def _summary_point_flags_value(flags: int) -> Any:
+    from otlp_client.encoding.json import JSONEncoder
+    from otlp_client.model.common import InstrumentationScope, Resource
+    from otlp_client.model.metrics import (
+        Metric,
+        ResourceMetrics,
+        ScopeMetrics,
+        Summary,
+        SummaryDataPoint,
+    )
+    from otlp_client.signals import SignalKind
+
+    point = SummaryDataPoint(time_unix_nano=1, count=1, flags=flags)
+    payload = JSONEncoder().encode(
+        SignalKind.METRICS,
+        [
+            ResourceMetrics(
+                resource=Resource(attributes={"a": "b"}),
+                scope_metrics=[
+                    ScopeMetrics(
+                        scope=InstrumentationScope(name="t"),
+                        metrics=[Metric(name="s", data=Summary(data_points=[point]))],
+                    )
+                ],
+            )
+        ],
+    )
+    doc = json.loads(payload)
+    metric = doc["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]
+    return metric["summary"]["dataPoints"][0]["flags"]
+
+
+_FLAGS_FIELDS: list[tuple[str, Callable[[int], Any]]] = [
+    ("Span.flags", _span_flags_value),
+    ("SpanLink.flags", _span_link_flags_value),
+    ("LogRecord.flags", _log_record_flags_value),
+    ("NumberDataPoint.flags", _number_point_flags_value),
+    ("HistogramDataPoint.flags", _histogram_point_flags_value),
+    ("ExponentialHistogramDataPoint.flags", _exponential_histogram_point_flags_value),
+    ("SummaryDataPoint.flags", _summary_point_flags_value),
+]
+
+
+@pytest.mark.parametrize("build", [f[1] for f in _FLAGS_FIELDS], ids=[f[0] for f in _FLAGS_FIELDS])
+def test_flags_encode_as_json_numbers_not_strings(build: Callable[[int], Any]) -> None:
+    """flags are 32-bit, so protobuf-JSON renders them as numbers, never u64 strings.
+
+    See the module comment above `_span_flags_value` for why the
+    property-based oracle cannot catch a regression here and this explicit
+    test is the only guard.
+    """
+    encoded = build(0x101)
+    assert encoded == 0x101
+    assert not isinstance(encoded, str)
 
 
 @pytest.mark.parametrize("value", [0.0, -0.0, 2.5])

@@ -32,9 +32,9 @@ class Exemplar:
     what the proto's name is warning against.
     """
 
+    filtered_attributes: Mapping[str, AnyValue] = field(default=_EMPTY, hash=False)
     time_unix_nano: int
     value: int | float
-    filtered_attributes: Mapping[str, AnyValue] = field(default=_EMPTY, hash=False)
     span_id: bytes | None = None
     trace_id: bytes | None = None
 
