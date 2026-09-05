@@ -60,7 +60,7 @@ async def test_posts_to_the_signal_path_with_content_type(server_factory: Server
     rec = Recorder()
     base, session = await server_factory(rec)
     transport = HTTPTransport(OTLPConfig(endpoint=base), JSONEncoder(), session=session)
-    result = await transport.send(SignalKind.METRICS, b'{"resourceMetrics":[]}')
+    result = await transport.send(SignalKind.METRICS, b'{"resourceMetrics":[]}', {})
     assert isinstance(result, Success)
     path, headers, body = rec.requests[0]
     assert path == "/v1/metrics"
@@ -69,11 +69,12 @@ async def test_posts_to_the_signal_path_with_content_type(server_factory: Server
 
 
 async def test_custom_headers_are_sent(server_factory: ServerFactory) -> None:
+    # Header resolution moved to the client; the transport just forwards
+    # whatever headers it is handed.
     rec = Recorder()
     base, session = await server_factory(rec)
-    cfg = OTLPConfig(endpoint=base, headers={"api-key": "secret"})
-    transport = HTTPTransport(cfg, JSONEncoder(), session=session)
-    await transport.send(SignalKind.LOGS, b"{}")
+    transport = HTTPTransport(OTLPConfig(endpoint=base), JSONEncoder(), session=session)
+    await transport.send(SignalKind.LOGS, b"{}", {"api-key": "secret"})
     assert rec.requests[0][1]["api-key"] == "secret"
     assert rec.requests[0][0] == "/v1/logs"
 
@@ -83,7 +84,7 @@ async def test_gzip_sets_content_encoding_and_compresses(server_factory: ServerF
     base, session = await server_factory(rec)
     cfg = OTLPConfig(endpoint=base, compression=Compression.GZIP, gzip_threshold=0)
     transport = HTTPTransport(cfg, JSONEncoder(), session=session)
-    await transport.send(SignalKind.METRICS, b'{"a":1}')
+    await transport.send(SignalKind.METRICS, b'{"a":1}', {})
     _, headers, body = rec.requests[0]
     assert headers["Content-Encoding"] == "gzip"
     assert gzip.decompress(body) == b'{"a":1}'
@@ -94,7 +95,7 @@ async def test_partial_success_is_surfaced(server_factory: ServerFactory) -> Non
     rec = Recorder(body=body.encode())
     base, session = await server_factory(rec)
     transport = HTTPTransport(OTLPConfig(endpoint=base), JSONEncoder(), session=session)
-    result = await transport.send(SignalKind.METRICS, b"{}")
+    result = await transport.send(SignalKind.METRICS, b"{}", {})
     assert isinstance(result, PartialSuccess)
     assert result.rejected == 2
 
@@ -104,7 +105,7 @@ async def test_retryable_statuses(server_factory: ServerFactory, status: int) ->
     rec = Recorder(status=status, body=b"busy")
     base, session = await server_factory(rec)
     transport = HTTPTransport(OTLPConfig(endpoint=base), JSONEncoder(), session=session)
-    result = await transport.send(SignalKind.METRICS, b"{}")
+    result = await transport.send(SignalKind.METRICS, b"{}", {})
     assert isinstance(result, Retryable)
     assert result.status == status
 
@@ -113,7 +114,7 @@ async def test_retry_after_header_is_parsed(server_factory: ServerFactory) -> No
     rec = Recorder(status=503, headers={"Retry-After": "12"})
     base, session = await server_factory(rec)
     transport = HTTPTransport(OTLPConfig(endpoint=base), JSONEncoder(), session=session)
-    result = await transport.send(SignalKind.METRICS, b"{}")
+    result = await transport.send(SignalKind.METRICS, b"{}", {})
     assert isinstance(result, Retryable)
     assert result.retry_after == 12.0
 
@@ -123,7 +124,7 @@ async def test_client_errors_are_permanent(server_factory: ServerFactory, status
     rec = Recorder(status=status, body=b"nope")
     base, session = await server_factory(rec)
     transport = HTTPTransport(OTLPConfig(endpoint=base), JSONEncoder(), session=session)
-    result = await transport.send(SignalKind.METRICS, b"{}")
+    result = await transport.send(SignalKind.METRICS, b"{}", {})
     assert isinstance(result, Permanent)
     assert result.status == status
 
@@ -132,7 +133,7 @@ async def test_connection_failure_is_retryable() -> None:
     async with ClientSession() as session:
         cfg = OTLPConfig(endpoint="http://127.0.0.1:1", timeout=1.0)
         transport = HTTPTransport(cfg, JSONEncoder(), session=session)
-        result = await transport.send(SignalKind.METRICS, b"{}")
+        result = await transport.send(SignalKind.METRICS, b"{}", {})
         assert isinstance(result, Retryable)
 
 
@@ -153,24 +154,19 @@ async def test_created_session_is_owned_and_closed() -> None:
     assert session.closed is True
 
 
-async def test_per_signal_headers_replace_the_general_ones(
+async def test_sends_exactly_the_headers_it_was_given(
     server_factory: ServerFactory,
 ) -> None:
+    # Header resolution moved to the client; this asserts only that the
+    # transport transmits what it is handed. Resolution itself is covered by
+    # the headers_for tests in test_config.py.
     rec = Recorder()
     base, session = await server_factory(rec)
-    cfg = OTLPConfig(
-        endpoint=base,
-        headers={"api-key": "secret"},
-        traces_headers={"x-tenant": "acme"},
-    )
-    transport = HTTPTransport(cfg, JSONEncoder(), session=session)
-    await transport.send(SignalKind.TRACES, b"{}")
-    await transport.send(SignalKind.METRICS, b"{}")
-    traces_headers = rec.requests[0][1]
-    metrics_headers = rec.requests[1][1]
-    assert traces_headers["x-tenant"] == "acme"
-    assert "api-key" not in traces_headers
-    assert metrics_headers["api-key"] == "secret"
+    transport = HTTPTransport(OTLPConfig(endpoint=base), JSONEncoder(), session=session)
+    await transport.send(SignalKind.TRACES, b"{}", {"x-tenant": "acme"})
+    sent = rec.requests[0][1]
+    assert sent["x-tenant"] == "acme"
+    assert "api-key" not in sent
 
 
 async def test_per_signal_compression_applies_to_that_signal_only(
@@ -180,8 +176,8 @@ async def test_per_signal_compression_applies_to_that_signal_only(
     base, session = await server_factory(rec)
     cfg = OTLPConfig(endpoint=base, logs_compression=Compression.GZIP)
     transport = HTTPTransport(cfg, JSONEncoder(), session=session)
-    await transport.send(SignalKind.LOGS, b'{"resourceLogs":[]}')
-    await transport.send(SignalKind.METRICS, b'{"resourceMetrics":[]}')
+    await transport.send(SignalKind.LOGS, b'{"resourceLogs":[]}', {})
+    await transport.send(SignalKind.METRICS, b'{"resourceMetrics":[]}', {})
     logs_headers, logs_body = rec.requests[0][1], rec.requests[0][2]
     metrics_headers = rec.requests[1][1]
     assert logs_headers["Content-Encoding"] == "gzip"

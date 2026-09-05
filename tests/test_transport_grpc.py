@@ -72,7 +72,7 @@ async def make_transport(target: str) -> GRPCTransport:
 async def test_export_hits_the_metrics_service_method(grpc_server: ServerFactory) -> None:
     handler = EchoHandler()
     transport = await make_transport(await grpc_server(handler))
-    result = await transport.send(SignalKind.METRICS, b"payload-bytes")
+    result = await transport.send(SignalKind.METRICS, b"payload-bytes", {})
     assert isinstance(result, Success)
     assert handler.received == [(METRICS_METHOD, b"payload-bytes")]
     await transport.aclose()
@@ -81,8 +81,8 @@ async def test_export_hits_the_metrics_service_method(grpc_server: ServerFactory
 async def test_logs_and_traces_use_their_own_methods(grpc_server: ServerFactory) -> None:
     handler = EchoHandler()
     transport = await make_transport(await grpc_server(handler))
-    await transport.send(SignalKind.LOGS, b"a")
-    await transport.send(SignalKind.TRACES, b"b")
+    await transport.send(SignalKind.LOGS, b"a", {})
+    await transport.send(SignalKind.TRACES, b"b", {})
     methods = [method for method, _ in handler.received]
     assert methods == [
         "/opentelemetry.proto.collector.logs.v1.LogsService/Export",
@@ -103,7 +103,7 @@ async def test_transient_status_codes_are_retryable(
     grpc_server: ServerFactory, code: grpc.StatusCode
 ) -> None:
     transport = await make_transport(await grpc_server(EchoHandler(code=code)))
-    assert isinstance(await transport.send(SignalKind.METRICS, b"x"), Retryable)
+    assert isinstance(await transport.send(SignalKind.METRICS, b"x", {}), Retryable)
     await transport.aclose()
 
 
@@ -119,7 +119,7 @@ async def test_other_status_codes_are_permanent(
     grpc_server: ServerFactory, code: grpc.StatusCode
 ) -> None:
     transport = await make_transport(await grpc_server(EchoHandler(code=code)))
-    assert isinstance(await transport.send(SignalKind.METRICS, b"x"), Permanent)
+    assert isinstance(await transport.send(SignalKind.METRICS, b"x", {}), Permanent)
     await transport.aclose()
 
 
@@ -132,7 +132,7 @@ async def test_partial_success_response_is_decoded(grpc_server: ServerFactory) -
     response.partial_success.rejected_data_points = 4
     handler = EchoHandler(response=response.SerializeToString())
     transport = await make_transport(await grpc_server(handler))
-    result = await transport.send(SignalKind.METRICS, b"x")
+    result = await transport.send(SignalKind.METRICS, b"x", {})
     assert getattr(result, "rejected", None) == 4
     await transport.aclose()
 
@@ -140,7 +140,7 @@ async def test_partial_success_response_is_decoded(grpc_server: ServerFactory) -
 async def test_unreachable_server_is_retryable() -> None:
     config = OTLPConfig(endpoint="http://127.0.0.1:1", protocol=OTLPProtocol.GRPC, timeout=1.0)
     transport = await GRPCTransport.create(config, build_protobuf_encoder())
-    assert isinstance(await transport.send(SignalKind.METRICS, b"x"), Retryable)
+    assert isinstance(await transport.send(SignalKind.METRICS, b"x", {}), Retryable)
     await transport.aclose()
 
 
@@ -182,7 +182,7 @@ async def test_gzip_compression_round_trips_successfully(grpc_server: ServerFact
         endpoint=f"http://{target}", protocol=OTLPProtocol.GRPC, compression=Compression.GZIP
     )
     transport = await GRPCTransport.create(config, build_protobuf_encoder())
-    result = await transport.send(SignalKind.METRICS, b"payload-bytes")
+    result = await transport.send(SignalKind.METRICS, b"payload-bytes", {})
     assert isinstance(result, Success)
     assert handler.received == [(METRICS_METHOD, b"payload-bytes")]
     await transport.aclose()
@@ -242,40 +242,18 @@ def test_transport_security_follows_scheme_then_insecure(
     assert plaintext is expected_plaintext
 
 
-async def test_per_signal_headers_replace_the_general_ones_over_grpc(
+async def test_sends_exactly_the_metadata_it_was_given(
     grpc_server: ServerFactory,
 ) -> None:
     handler = EchoHandler()
     target = await grpc_server(handler)
-    config = OTLPConfig(
-        endpoint=f"http://{target}",
-        protocol=OTLPProtocol.GRPC,
-        headers={"api-key": "secret"},
-        metrics_headers={"x-tenant": "acme"},
-    )
+    config = OTLPConfig(endpoint=f"http://{target}", protocol=OTLPProtocol.GRPC)
     transport = await GRPCTransport.create(config, build_protobuf_encoder())
-    await transport.send(SignalKind.METRICS, b"")
+    await transport.send(SignalKind.METRICS, b"", {"x-tenant": "acme"})
     await transport.aclose()
     sent = dict(handler.metadata)
     assert sent["x-tenant"] == "acme"
     assert "api-key" not in sent
-
-
-async def test_general_headers_still_reach_a_signal_without_an_override(
-    grpc_server: ServerFactory,
-) -> None:
-    handler = EchoHandler()
-    target = await grpc_server(handler)
-    config = OTLPConfig(
-        endpoint=f"http://{target}",
-        protocol=OTLPProtocol.GRPC,
-        headers={"api-key": "secret"},
-        metrics_headers={"x-tenant": "acme"},
-    )
-    transport = await GRPCTransport.create(config, build_protobuf_encoder())
-    await transport.send(SignalKind.LOGS, b"")
-    await transport.aclose()
-    assert dict(handler.metadata)["api-key"] == "secret"
 
 
 async def test_per_signal_compression_round_trips_over_grpc(
@@ -292,7 +270,7 @@ async def test_per_signal_compression_round_trips_over_grpc(
         metrics_compression=Compression.GZIP,
     )
     transport = await GRPCTransport.create(config, build_protobuf_encoder())
-    result = await transport.send(SignalKind.METRICS, b"payload-bytes")
+    result = await transport.send(SignalKind.METRICS, b"payload-bytes", {})
     assert isinstance(result, Success)
     assert handler.received == [(METRICS_METHOD, b"payload-bytes")]
     await transport.aclose()

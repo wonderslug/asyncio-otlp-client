@@ -5,16 +5,19 @@ from tests.support.fakes import FakeClock, FakeTransport
 
 async def test_fake_transport_records_and_replays_outcomes() -> None:
     transport = FakeTransport(outcomes=[Success(), Permanent(status=400, message="nope")])
-    assert isinstance(await transport.send(SignalKind.METRICS, b"one"), Success)
-    second = await transport.send(SignalKind.LOGS, b"two")
+    assert isinstance(await transport.send(SignalKind.METRICS, b"one", {}), Success)
+    second = await transport.send(SignalKind.LOGS, b"two", {})
     assert isinstance(second, Permanent)
-    assert transport.sent == [(SignalKind.METRICS, b"one"), (SignalKind.LOGS, b"two")]
+    assert transport.sent == [
+        (SignalKind.METRICS, b"one", {}),
+        (SignalKind.LOGS, b"two", {}),
+    ]
 
 
 async def test_fake_transport_repeats_its_last_outcome() -> None:
     transport = FakeTransport(outcomes=[Success()])
-    await transport.send(SignalKind.METRICS, b"a")
-    assert isinstance(await transport.send(SignalKind.METRICS, b"b"), Success)
+    await transport.send(SignalKind.METRICS, b"a", {})
+    assert isinstance(await transport.send(SignalKind.METRICS, b"b", {}), Success)
 
 
 async def test_fake_transport_close() -> None:

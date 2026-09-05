@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from otlp_client.outcomes import ExportOutcome, Success
 from otlp_client.signals import SignalKind
@@ -19,11 +19,13 @@ class FakeTransport:
     def __init__(self, outcomes: Sequence[ExportOutcome] | None = None) -> None:
         self._outcomes = list(outcomes) if outcomes else [Success()]
         self._index = 0
-        self.sent: list[tuple[SignalKind, bytes]] = []
+        self.sent: list[tuple[SignalKind, bytes, Mapping[str, str]]] = []
         self.closed = False
 
-    async def send(self, kind: SignalKind, payload: bytes) -> ExportOutcome:
-        self.sent.append((kind, payload))
+    async def send(
+        self, kind: SignalKind, payload: bytes, headers: Mapping[str, str]
+    ) -> ExportOutcome:
+        self.sent.append((kind, payload, dict(headers)))
         outcome = self._outcomes[min(self._index, len(self._outcomes) - 1)]
         self._index += 1
         return outcome
@@ -42,10 +44,12 @@ class HangingTransport:
 
     def __init__(self) -> None:
         self.gate = asyncio.Event()
-        self.sent: list[tuple[SignalKind, bytes]] = []
+        self.sent: list[tuple[SignalKind, bytes, Mapping[str, str]]] = []
 
-    async def send(self, kind: SignalKind, payload: bytes) -> ExportOutcome:
-        self.sent.append((kind, payload))
+    async def send(
+        self, kind: SignalKind, payload: bytes, headers: Mapping[str, str]
+    ) -> ExportOutcome:
+        self.sent.append((kind, payload, dict(headers)))
         await self.gate.wait()
         return Success()
 

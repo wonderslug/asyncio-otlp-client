@@ -7,6 +7,7 @@ core-only install.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlparse
 
@@ -116,7 +117,9 @@ class GRPCTransport:
             return Retryable(message=message, retry_after=_pushback(exc))
         return Permanent(message=message)
 
-    async def send(self, kind: SignalKind, payload: bytes) -> ExportOutcome:
+    async def send(
+        self, kind: SignalKind, payload: bytes, headers: Mapping[str, str]
+    ) -> ExportOutcome:
         import grpc
         from grpc.aio import AioRpcError
 
@@ -125,7 +128,7 @@ class GRPCTransport:
             request_serializer=lambda value: value,
             response_deserializer=lambda value: value,
         )
-        metadata = tuple(self._config.headers_for(kind).items())
+        metadata = tuple(headers.items())
         compression = (
             grpc.Compression.Gzip
             if self._config.compression_for(kind) is Compression.GZIP

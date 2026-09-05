@@ -108,7 +108,7 @@ class OTLPClient:
         payload = self._encoder.encode(kind, data)
 
         async def attempt() -> ExportOutcome:
-            return await self._transport.send(kind, payload)
+            return await self._transport.send(kind, payload, self._config.headers_for(kind))
 
         outcome = await with_retry(
             attempt,

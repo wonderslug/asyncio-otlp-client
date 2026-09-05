@@ -44,7 +44,7 @@ async def test_export_traces_envelope_and_hex_ids() -> None:
         ]
     )
     assert isinstance(result, Success)
-    kind, payload = transport.sent[0]
+    kind, payload, _headers = transport.sent[0]
     assert kind is SignalKind.TRACES
     s = only_span(payload)
     assert s["traceId"] == "0102030405060708090a0b0c0d0e0f10"

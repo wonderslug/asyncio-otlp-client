@@ -38,7 +38,7 @@ async def test_export_logs_envelope_and_field_encoding() -> None:
         ]
     )
     assert isinstance(result, Success)
-    kind, payload = transport.sent[0]
+    kind, payload, _headers = transport.sent[0]
     assert kind is SignalKind.LOGS
     doc = json.loads(payload)
     (rl,) = doc["resourceLogs"]
@@ -112,5 +112,5 @@ async def test_processor_keeps_metrics_and_logs_in_separate_queues() -> None:
     proc.submit_metrics([gauge("t", 1.0, time_unix_nano=1)])
     proc.submit_logs([log_record("a", time_unix_nano=1)])
     await proc.flush()
-    assert {kind for kind, _ in transport.sent} == {SignalKind.METRICS, SignalKind.LOGS}
+    assert {kind for kind, _, _ in transport.sent} == {SignalKind.METRICS, SignalKind.LOGS}
     assert proc.stats.exported == 2
