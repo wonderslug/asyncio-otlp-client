@@ -56,6 +56,22 @@ class OTLPConfig:
     logs_endpoint: str | None = None
     traces_endpoint: str | None = None
 
+    # Per-signal overrides. A value here REPLACES the general one rather than
+    # merging with it, per the spec: each option is overridable by a signal
+    # specific option. None means "not configured"; an empty mapping is a real
+    # override meaning "send no headers for this signal".
+    metrics_headers: Mapping[str, str] | None = field(default=None, hash=False)
+    logs_headers: Mapping[str, str] | None = field(default=None, hash=False)
+    traces_headers: Mapping[str, str] | None = field(default=None, hash=False)
+
+    metrics_timeout: float | None = None
+    logs_timeout: float | None = None
+    traces_timeout: float | None = None
+
+    metrics_compression: Compression | None = None
+    logs_compression: Compression | None = None
+    traces_compression: Compression | None = None
+
     # `insecure` chooses whether TLS is used at all and only applies to gRPC
     # endpoints written without a scheme. `insecure_skip_verify` is a different
     # knob: it keeps TLS but stops verifying the server's certificate.
@@ -137,6 +153,41 @@ class OTLPConfig:
         if override:
             return override
         return self.endpoint.rstrip("/") + http_path(kind)
+
+    def headers_for(self, kind: SignalKind) -> Mapping[str, str]:
+        """Resolve the headers for a signal.
+
+        A per-signal value replaces the general one rather than merging with
+        it. An empty mapping is a valid override meaning "send none"; None
+        means "not configured, use the general value".
+        """
+        override = {
+            SignalKind.METRICS: self.metrics_headers,
+            SignalKind.LOGS: self.logs_headers,
+            SignalKind.TRACES: self.traces_headers,
+            SignalKind.PROFILES: None,
+        }[kind]
+        return self.headers if override is None else override
+
+    def timeout_for(self, kind: SignalKind) -> float:
+        """Resolve the timeout for a signal, in seconds."""
+        override = {
+            SignalKind.METRICS: self.metrics_timeout,
+            SignalKind.LOGS: self.logs_timeout,
+            SignalKind.TRACES: self.traces_timeout,
+            SignalKind.PROFILES: None,
+        }[kind]
+        return self.timeout if override is None else override
+
+    def compression_for(self, kind: SignalKind) -> Compression:
+        """Resolve the compression for a signal."""
+        override = {
+            SignalKind.METRICS: self.metrics_compression,
+            SignalKind.LOGS: self.logs_compression,
+            SignalKind.TRACES: self.traces_compression,
+            SignalKind.PROFILES: None,
+        }[kind]
+        return self.compression if override is None else override
 
 
 def _parse_bool(raw: str, name: str) -> bool:
