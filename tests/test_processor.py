@@ -1,4 +1,7 @@
 import asyncio
+import logging
+
+import pytest
 
 from otlp_client.client import OTLPClient
 from otlp_client.config import OTLPConfig
@@ -65,6 +68,9 @@ async def test_export_failure_records_error_and_does_not_raise() -> None:
     assert proc.stats.consecutive_failures == 1
     assert proc.stats.last_error is not None
     assert "400" in proc.stats.last_error
+    # The drained batch never reached the collector, so it counts as dropped
+    # even though it was never evicted by overflow.
+    assert proc.stats.dropped == 1
 
 
 async def test_consecutive_failures_reset_after_a_success() -> None:
@@ -112,3 +118,105 @@ async def test_flush_task_is_cancelled_on_exit() -> None:
         task = proc._task
     assert task is not None
     assert task.done()
+
+
+async def test_non_otlp_error_during_flush_is_treated_like_a_failed_export() -> None:
+    """A bool metric value is a realistic trigger: `gauge()`'s `value: float`
+    parameter accepts a `bool` under mypy's numeric tower, but the JSON
+    encoder's `_encode_number_point` raises a bare `TypeError` for it. That
+    error must be handled exactly like an `OTLPError` — counted as a dropped,
+    failed export — not left to escape `flush()`.
+    """
+    transport = FakeTransport()
+    proc = BatchProcessor(make_client(transport), flush_interval=3600.0)
+    proc.submit_metrics([gauge("t", True, time_unix_nano=1)])
+    await proc.flush()
+    assert transport.sent == []
+    assert proc.stats.dropped == 1
+    assert proc.stats.consecutive_failures == 1
+    assert proc.stats.last_error is not None
+    assert "bool" in proc.stats.last_error
+
+
+async def test_background_loop_survives_a_non_otlp_error_and_keeps_flushing() -> None:
+    """The bad batch must not kill the background task: a later, good batch
+    still has to reach the collector.
+    """
+    transport = FakeTransport()
+    async with BatchProcessor(
+        make_client(transport), max_batch=1, flush_interval=3600.0
+    ) as proc:
+        proc.submit_metrics([gauge("t", True, time_unix_nano=1)])
+        async with asyncio.timeout(5):
+            await proc.flushed.wait()
+        assert transport.sent == []
+        assert proc.stats.dropped == 1
+        assert proc._task is not None
+        assert not proc._task.done()
+
+        proc.flushed.clear()
+        proc.submit_metrics(one(1))
+        async with asyncio.timeout(5):
+            await proc.flushed.wait()
+    assert len(transport.sent) == 1
+    assert proc.stats.exported == 1
+
+
+async def test_aexit_tolerates_a_background_task_that_died_unexpectedly() -> None:
+    """`_run` should never end this way in practice — `flush()` and `_run`
+    itself both guard their own errors — but if it somehow does, `__aexit__`
+    must still keep its own never-raises contract: shutdown has nowhere to
+    hand an exception either.
+    """
+    transport = FakeTransport()
+
+    class BrokenProcessor(BatchProcessor):
+        async def _run(self) -> None:
+            raise RuntimeError("boom")
+
+    proc = BrokenProcessor(make_client(transport), flush_interval=3600.0)
+    await proc.__aenter__()
+    task = proc._task
+    assert task is not None
+    with pytest.raises(RuntimeError, match="boom"):
+        await task
+    await proc.__aexit__(None, None, None)  # must not raise
+
+
+async def test_flushed_event_reflects_a_real_subsequent_flush() -> None:
+    """A second `wait()` must correspond to a second, real flush, not the
+    first `set()` left dangling forever. Clearing before triggering the next
+    flush (the correct way to consume a level-triggered `Event`) must
+    actually block until that next flush happens.
+    """
+    transport = FakeTransport()
+    async with BatchProcessor(
+        make_client(transport), max_batch=1, flush_interval=3600.0
+    ) as proc:
+        proc.submit_metrics(one(1))
+        async with asyncio.timeout(5):
+            await proc.flushed.wait()
+        assert len(transport.sent) == 1
+
+        proc.flushed.clear()
+        proc.submit_metrics(one(2))
+        async with asyncio.timeout(5):
+            await proc.flushed.wait()
+        assert len(transport.sent) == 2
+        assert proc.stats.exported == 2
+
+
+async def test_first_failure_logs_at_warning_later_failures_at_debug(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    transport = FakeTransport(outcomes=[Permanent(status=400), Permanent(status=400)])
+    proc = BatchProcessor(make_client(transport), flush_interval=3600.0)
+    with caplog.at_level(logging.DEBUG, logger="otlp_client.processor"):
+        proc.submit_metrics(one(1))
+        await proc.flush()
+        proc.submit_metrics(one(2))
+        await proc.flush()
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    debugs = [r for r in caplog.records if r.levelno == logging.DEBUG]
+    assert len(warnings) == 1
+    assert len(debugs) == 1

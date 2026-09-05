@@ -11,7 +11,6 @@ from types import TracebackType
 from typing import Any, Self, cast
 
 from otlp_client.client import OTLPClient
-from otlp_client.errors import OTLPError
 from otlp_client.model.common import InstrumentationScope, Resource
 from otlp_client.model.metrics import Metric
 from otlp_client.outcomes import PartialSuccess
@@ -22,7 +21,12 @@ _LOGGER = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class ProcessorStats:
-    """A snapshot of processor health, safe to surface in a UI."""
+    """A snapshot of processor health, safe to surface in a UI.
+
+    `dropped` means "records that never reached the collector" regardless of
+    cause: queue overflow (oldest evicted) and a failed export both count.
+    `last_error` distinguishes the two after the fact.
+    """
 
     submitted: int = 0
     exported: int = 0
@@ -36,7 +40,9 @@ class BatchProcessor:
 
     `submit_*` never blocks and never raises: a caller such as a state-change
     listener has nowhere to handle an exception. Overflow drops the oldest
-    record and increments `stats.dropped`.
+    record and increments `stats.dropped`; a batch that fails to export is
+    discarded (not requeued, to avoid retrying a poison batch forever) and
+    also counted in `stats.dropped`.
 
     Backoff on a failing collector comes from the client's retry engine, which
     bounds each flush by `max_elapsed`, so the flush loop cannot hot-loop.
@@ -121,7 +127,11 @@ class BatchProcessor:
     async def flush(self) -> None:
         """Export everything queued, for every signal.
 
-        Never raises; failures land in stats so a caller can surface health.
+        Never raises (except `asyncio.CancelledError`, which always
+        propagates): failures land in stats so a caller can surface health.
+        A batch that fails for any reason — an `OTLPError` from the client,
+        or an unexpected bug such as an encoder rejecting a bad value — is
+        discarded rather than requeued, and counted in `stats.dropped`.
         """
         async with self._lock:
             for kind, queue in self._queues.items():
@@ -131,10 +141,11 @@ class BatchProcessor:
                     continue
                 try:
                     partial = await self._export_batch(kind, batch)
-                except OTLPError as exc:
+                except Exception as exc:  # noqa: BLE001 - never let export crash the loop
                     self._consecutive_failures += 1
                     self._last_error = str(exc)
-                    _LOGGER.debug("OTLP %s export failed: %s", kind, exc)
+                    self._dropped += len(batch)
+                    self._log_export_failure(kind, exc)
                     continue
                 self._consecutive_failures = 0
                 self._last_error = None
@@ -144,6 +155,22 @@ class BatchProcessor:
                     self._last_error = f"partial success: {partial.message}"
                 self._exported += max(0, exported)
 
+    def _log_export_failure(self, kind: SignalKind, exc: Exception) -> None:
+        """Log at WARNING on the first failure of a run, DEBUG afterwards.
+
+        A collector outage should be visible the moment it starts, without
+        spamming a line every `flush_interval` for the length of the outage.
+        """
+        if self._consecutive_failures == 1:
+            _LOGGER.warning("OTLP %s export failed, will keep retrying: %s", kind, exc)
+        else:
+            _LOGGER.debug(
+                "OTLP %s export failed (%d consecutive failures): %s",
+                kind,
+                self._consecutive_failures,
+                exc,
+            )
+
     async def _run(self) -> None:
         while True:
             try:
@@ -152,7 +179,16 @@ class BatchProcessor:
             except TimeoutError:
                 pass
             self._wake.clear()
-            await self.flush()
+            self.flushed.clear()
+            try:
+                await self.flush()
+            except Exception as exc:  # noqa: BLE001 - flush() must never kill this loop
+                # flush() already guards every export it makes; this is a
+                # last-resort net so a bug elsewhere can't stop future
+                # flushes from ever running again.
+                self._consecutive_failures += 1
+                self._last_error = str(exc)
+                _LOGGER.warning("BatchProcessor flush loop caught an unexpected error: %s", exc)
             self.flushed.set()
 
     async def __aenter__(self) -> Self:
@@ -173,4 +209,12 @@ class BatchProcessor:
                 await self._task
             except asyncio.CancelledError:
                 pass
+            except Exception as task_exc:  # noqa: BLE001 - shutdown must never raise
+                # The task normally only ever ends via cancellation (flush()
+                # and _run() both guard their own errors), but tolerate any
+                # other way it might have died so __aexit__ keeps its own
+                # never-raises contract.
+                _LOGGER.debug(
+                    "BatchProcessor background task ended with an error: %s", task_exc
+                )
         await self.flush()
