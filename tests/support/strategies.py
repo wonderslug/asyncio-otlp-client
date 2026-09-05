@@ -119,6 +119,7 @@ exponential_points = st.builds(
     sum=st.one_of(st.none(), finite),
     min=st.one_of(st.none(), finite),
     max=st.one_of(st.none(), finite),
+    zero_threshold=finite,
     attributes=attributes,
     flags=flags,
     exemplars=st.lists(exemplars, max_size=2),

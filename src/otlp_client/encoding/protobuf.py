@@ -275,6 +275,7 @@ def _metric(metric: Metric) -> Any:
                 "max": p.max,
                 "flags": p.flags,
                 "exemplars": [_exemplar(e) for e in p.exemplars],
+                "zero_threshold": p.zero_threshold,
             }
             # positive/negative are message-typed fields with explicit
             # presence: only set them when they carry information, matching

@@ -105,6 +105,7 @@ class ExponentialHistogramDataPoint:
     start_time_unix_nano: int | None = None
     flags: int = 0
     exemplars: Sequence[Exemplar] = ()
+    zero_threshold: float = 0.0
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

@@ -508,3 +508,65 @@ def test_exemplar_omits_absent_ids_and_attributes() -> None:
 def test_exemplars_absent_by_default() -> None:
     point = _encode_number_metric_with([])
     assert "exemplars" not in point
+
+
+def _encode_exponential_point_with(zero_threshold: float) -> dict[str, Any]:
+    """Encode a one-point exponential histogram through the real JSONEncoder."""
+    import json as _json
+
+    from otlp_client.encoding.json import JSONEncoder
+    from otlp_client.model.common import InstrumentationScope, Resource
+    from otlp_client.model.metrics import (
+        ExponentialHistogram,
+        ExponentialHistogramDataPoint,
+        Metric,
+        ResourceMetrics,
+        ScopeMetrics,
+    )
+    from otlp_client.signals import SignalKind
+
+    point = ExponentialHistogramDataPoint(time_unix_nano=1, count=1, zero_threshold=zero_threshold)
+    payload = JSONEncoder().encode(
+        SignalKind.METRICS,
+        [
+            ResourceMetrics(
+                resource=Resource(attributes={"a": "b"}),
+                scope_metrics=[
+                    ScopeMetrics(
+                        scope=InstrumentationScope(name="t"),
+                        metrics=[
+                            Metric(
+                                name="eh",
+                                data=ExponentialHistogram(data_points=[point]),
+                            )
+                        ],
+                    )
+                ],
+            )
+        ],
+    )
+    doc = _json.loads(payload)["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]
+    return cast("dict[str, Any]", doc["exponentialHistogram"]["dataPoints"][0])
+
+
+def test_zero_threshold_is_omitted_when_positive_zero() -> None:
+    """zero_threshold has IMPLICIT presence, so +0.0 is the default and is omitted."""
+    assert "zeroThreshold" not in _encode_exponential_point_with(0.0)
+
+
+def test_zero_threshold_negative_zero_is_kept() -> None:
+    """protobuf's presence check is a bit pattern, so -0.0 is on the wire.
+
+    A plain `or None` gate would drop it (``-0.0`` is falsy in Python) and
+    diverge from the protobuf encoder for that one value -- the same defect
+    that hit Summary.sum.
+    """
+    import math
+
+    encoded = _encode_exponential_point_with(-0.0)
+    assert "zeroThreshold" in encoded
+    assert math.copysign(1.0, encoded["zeroThreshold"]) == -1.0
+
+
+def test_zero_threshold_non_zero_is_kept() -> None:
+    assert _encode_exponential_point_with(1e-9)["zeroThreshold"] == 1e-9
