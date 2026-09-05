@@ -197,3 +197,36 @@ def test_empty_compression_variable_is_treated_as_unset() -> None:
 def test_general_timeout_of_zero_is_rejected() -> None:
     with pytest.raises(OTLPConfigError, match="timeout"):
         OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_TIMEOUT": "0"})
+
+
+@pytest.mark.parametrize("signal", ["TRACES", "METRICS", "LOGS"])
+@pytest.mark.parametrize(
+    "option", ["PROTOCOL", "INSECURE", "CERTIFICATE", "CLIENT_KEY", "CLIENT_CERTIFICATE"]
+)
+def test_unsupported_per_signal_variables_are_rejected(signal: str, option: str) -> None:
+    # One OTLPClient holds one encoder and one transport, so these cannot vary
+    # by signal. Ignoring them silently would send a signal in the wrong wire
+    # format or quietly drop a certificate.
+    name = f"OTEL_EXPORTER_OTLP_{signal}_{option}"
+    with pytest.raises(OTLPConfigError, match=name):
+        OTLPConfig.from_env({name: "x"})
+
+
+def test_supported_per_signal_variables_are_not_rejected() -> None:
+    cfg = OTLPConfig.from_env(
+        {
+            "OTEL_EXPORTER_OTLP_TRACES_HEADERS": "x-tenant=acme",
+            "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT": "2500",
+            "OTEL_EXPORTER_OTLP_TRACES_COMPRESSION": "gzip",
+            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "https://traces.example/v1/traces",
+        }
+    )
+    assert cfg.traces_headers == {"x-tenant": "acme"}
+    assert cfg.traces_timeout == 2.5
+
+
+def test_an_empty_unsupported_variable_is_ignored() -> None:
+    # An empty value is effectively unset, matching how endpoint overrides are
+    # treated, so it must not trip the rejection.
+    cfg = OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE": ""})
+    assert cfg.certificate_file is None

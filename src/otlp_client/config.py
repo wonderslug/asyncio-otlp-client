@@ -39,6 +39,18 @@ _DEFAULT_ENDPOINTS: Mapping[OTLPProtocol, str] = MappingProxyType(
     }
 )
 
+# Per-signal variants this client cannot honour: one OTLPClient holds one
+# encoder and one transport, so the protocol and the connection-level TLS
+# settings cannot vary by signal.
+_UNSUPPORTED_PER_SIGNAL = (
+    "PROTOCOL",
+    "INSECURE",
+    "CERTIFICATE",
+    "CLIENT_KEY",
+    "CLIENT_CERTIFICATE",
+)
+_SIGNAL_PREFIXES = ("TRACES", "METRICS", "LOGS")
+
 
 @dataclass(frozen=True, slots=True)
 class OTLPConfig:
@@ -109,6 +121,7 @@ class OTLPConfig:
         cannot silently change client behaviour.
         """
         src = os.environ if env is None else env
+        _reject_unsupported_per_signal(src)
 
         raw_protocol = src.get("OTEL_EXPORTER_OTLP_PROTOCOL", OTLPProtocol.HTTP_JSON.value)
         try:
@@ -264,6 +277,24 @@ def _signal_headers(src: Mapping[str, str], signal: str) -> Mapping[str, str] | 
     """
     raw = src.get(f"OTEL_EXPORTER_OTLP_{signal}_HEADERS")
     return None if raw is None else _parse_headers(raw)
+
+
+def _reject_unsupported_per_signal(src: Mapping[str, str]) -> None:
+    """Refuse per-signal variables that cannot be honoured.
+
+    Failing loudly rather than ignoring them: silently dropping a per-signal
+    protocol would send that signal in the wrong wire format, and silently
+    dropping a per-signal certificate is a security surprise.
+    """
+    for signal in _SIGNAL_PREFIXES:
+        for option in _UNSUPPORTED_PER_SIGNAL:
+            name = f"OTEL_EXPORTER_OTLP_{signal}_{option}"
+            if src.get(name):
+                raise OTLPConfigError(
+                    f"{name} is not supported: one OTLPClient holds a single encoder and "
+                    f"transport, so this cannot vary per signal. Use separate OTLPClient "
+                    f"instances, one per signal, each with its own config."
+                )
 
 
 def _parse_headers(raw: str) -> Mapping[str, str]:
