@@ -18,12 +18,18 @@ class AggregationTemporality(IntEnum):
     CUMULATIVE = 2
 
 
+# Set when a data point represents "no measurement was recorded", which is
+# distinct from a measurement whose value happens to be zero.
+DATA_POINT_FLAGS_NO_RECORDED_VALUE = 0x00000001
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class NumberDataPoint:
     time_unix_nano: int
     value: int | float
     attributes: Mapping[str, AnyValue] = field(default=_EMPTY, hash=False)
     start_time_unix_nano: int | None = None
+    flags: int = 0
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -35,6 +41,9 @@ class HistogramDataPoint:
     sum: float | None = None
     attributes: Mapping[str, AnyValue] = field(default=_EMPTY, hash=False)
     start_time_unix_nano: int | None = None
+    flags: int = 0
+    min: float | None = None
+    max: float | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -76,6 +85,7 @@ class ExponentialHistogramDataPoint:
     max: float | None = None
     attributes: Mapping[str, AnyValue] = field(default=_EMPTY, hash=False)
     start_time_unix_nano: int | None = None
+    flags: int = 0
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -98,6 +108,7 @@ class SummaryDataPoint:
     quantile_values: Sequence[ValueAtQuantile] = ()
     attributes: Mapping[str, AnyValue] = field(default=_EMPTY, hash=False)
     start_time_unix_nano: int | None = None
+    flags: int = 0
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -167,3 +178,8 @@ def sum_(
     )
     data = Sum(data_points=(point,), aggregation_temporality=temporality, is_monotonic=is_monotonic)
     return Metric(name=name, data=data, unit=unit, description=description)
+
+
+def data_point_flags(*, no_recorded_value: bool = False) -> int:
+    """Build a data point's flags."""
+    return DATA_POINT_FLAGS_NO_RECORDED_VALUE if no_recorded_value else 0

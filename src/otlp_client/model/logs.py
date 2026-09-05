@@ -22,6 +22,10 @@ class SeverityNumber(IntEnum):
     FATAL = 21
 
 
+# The low eight bits of a log record's flags carry the W3C trace flags.
+LOG_RECORD_FLAGS_TRACE_FLAGS_MASK = 0x000000FF
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class LogRecord:
     time_unix_nano: int
@@ -32,6 +36,7 @@ class LogRecord:
     attributes: Mapping[str, AnyValue] = field(default=_EMPTY, hash=False)
     trace_id: bytes | None = None
     span_id: bytes | None = None
+    event_name: str = ""
     flags: int = 0
 
 
@@ -57,6 +62,7 @@ def log_record(
     attributes: Mapping[str, AnyValue] | None = None,
     trace_id: bytes | None = None,
     span_id: bytes | None = None,
+    event_name: str = "",
 ) -> LogRecord:
     """Build a log record.
 
@@ -78,4 +84,5 @@ def log_record(
         attributes=attributes or _EMPTY,
         trace_id=trace_id,
         span_id=span_id,
+        event_name=event_name,
     )
