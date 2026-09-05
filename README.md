@@ -165,6 +165,37 @@ to disable certificate verification — and `OTLPClient.create()` raises
 `OTLPConfigError` there rather than silently connecting with verification
 still on.
 
+## Per-signal configuration
+
+Headers, timeout and compression can be set per signal, via either the config
+fields or the `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_*` environment
+variables.
+
+**A per-signal value replaces the general one — it does not merge with it.**
+This follows the OTLP spec, and matches the other SDKs, but it is easy to get
+caught by:
+
+```bash
+export OTEL_EXPORTER_OTLP_HEADERS=api-key=secret
+export OTEL_EXPORTER_OTLP_TRACES_HEADERS=x-tenant=acme
+```
+
+Traces are now sent with **only** `x-tenant` — the shared `api-key` is not
+included. Repeat any header the signal still needs:
+
+```bash
+export OTEL_EXPORTER_OTLP_TRACES_HEADERS=api-key=secret,x-tenant=acme
+```
+
+Setting a per-signal headers variable to the empty string sends no headers at
+all for that signal, which is distinct from leaving it unset.
+
+`PROTOCOL`, `INSECURE`, `CERTIFICATE`, `CLIENT_KEY` and `CLIENT_CERTIFICATE`
+cannot vary per signal: one `OTLPClient` holds a single encoder and transport,
+and those settings choose them or configure the connection itself. `from_env()`
+raises `OTLPConfigError` on the per-signal forms rather than ignoring them.
+Use one client per signal if you need them to differ.
+
 ## Scope
 
 This is a client, not an SDK. It owns the data model, encoding, transport,

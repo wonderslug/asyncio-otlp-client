@@ -27,11 +27,16 @@ class EchoHandler(grpc.GenericRpcHandler):
     def __init__(self, response: bytes = b"", code: grpc.StatusCode | None = None) -> None:
         self.response, self.code = response, code
         self.received: list[tuple[str, bytes]] = []
+        self.metadata: list[tuple[str, str]] = []
 
     def service(
         self, handler_call_details: grpc.HandlerCallDetails
     ) -> grpc.RpcMethodHandler[bytes, bytes]:
         async def handle(request: bytes, context: aio.ServicerContext[bytes, bytes]) -> bytes:
+            self.metadata.extend(
+                (key, value if isinstance(value, str) else value.decode())
+                for key, value in (context.invocation_metadata() or ())
+            )
             self.received.append((handler_call_details.method, request))
             if self.code is not None:
                 await context.abort(self.code, "scripted failure")
@@ -235,3 +240,59 @@ def test_transport_security_follows_scheme_then_insecure(
     host, plaintext = _target(endpoint, insecure)
     assert host == "collector.local:4317"
     assert plaintext is expected_plaintext
+
+
+async def test_per_signal_headers_replace_the_general_ones_over_grpc(
+    grpc_server: ServerFactory,
+) -> None:
+    handler = EchoHandler()
+    target = await grpc_server(handler)
+    config = OTLPConfig(
+        endpoint=f"http://{target}",
+        protocol=OTLPProtocol.GRPC,
+        headers={"api-key": "secret"},
+        metrics_headers={"x-tenant": "acme"},
+    )
+    transport = await GRPCTransport.create(config, build_protobuf_encoder())
+    await transport.send(SignalKind.METRICS, b"")
+    await transport.aclose()
+    sent = dict(handler.metadata)
+    assert sent["x-tenant"] == "acme"
+    assert "api-key" not in sent
+
+
+async def test_general_headers_still_reach_a_signal_without_an_override(
+    grpc_server: ServerFactory,
+) -> None:
+    handler = EchoHandler()
+    target = await grpc_server(handler)
+    config = OTLPConfig(
+        endpoint=f"http://{target}",
+        protocol=OTLPProtocol.GRPC,
+        headers={"api-key": "secret"},
+        metrics_headers={"x-tenant": "acme"},
+    )
+    transport = await GRPCTransport.create(config, build_protobuf_encoder())
+    await transport.send(SignalKind.LOGS, b"")
+    await transport.aclose()
+    assert dict(handler.metadata)["api-key"] == "secret"
+
+
+async def test_per_signal_compression_round_trips_over_grpc(
+    grpc_server: ServerFactory,
+) -> None:
+    # As with the general-compression test, a well-behaved server makes this a
+    # wiring check rather than a compression assertion: the payload must still
+    # arrive and still decode when compression is resolved per signal.
+    handler = EchoHandler()
+    target = await grpc_server(handler)
+    config = OTLPConfig(
+        endpoint=f"http://{target}",
+        protocol=OTLPProtocol.GRPC,
+        metrics_compression=Compression.GZIP,
+    )
+    transport = await GRPCTransport.create(config, build_protobuf_encoder())
+    result = await transport.send(SignalKind.METRICS, b"payload-bytes")
+    assert isinstance(result, Success)
+    assert handler.received == [(METRICS_METHOD, b"payload-bytes")]
+    await transport.aclose()

@@ -132,3 +132,101 @@ def test_insecure_rejects_values_the_spec_forbids_extending_to(
         cfg = OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_INSECURE": raw})
     assert cfg.insecure is False
     assert "OTEL_EXPORTER_OTLP_INSECURE" in caplog.text
+
+
+def test_per_signal_headers_are_read_and_replace_the_general_ones() -> None:
+    cfg = OTLPConfig.from_env(
+        {
+            "OTEL_EXPORTER_OTLP_HEADERS": "api-key=secret",
+            "OTEL_EXPORTER_OTLP_TRACES_HEADERS": "x-tenant=acme",
+        }
+    )
+    assert cfg.headers_for(SignalKind.TRACES) == {"x-tenant": "acme"}
+    assert cfg.headers_for(SignalKind.METRICS) == {"api-key": "secret"}
+
+
+def test_empty_per_signal_headers_variable_means_send_none() -> None:
+    # Absent -> None -> fall back. Present but empty -> {} -> replace with nothing.
+    cfg = OTLPConfig.from_env(
+        {
+            "OTEL_EXPORTER_OTLP_HEADERS": "api-key=secret",
+            "OTEL_EXPORTER_OTLP_LOGS_HEADERS": "",
+        }
+    )
+    assert cfg.logs_headers == {}
+    assert cfg.headers_for(SignalKind.LOGS) == {}
+    assert cfg.metrics_headers is None
+
+
+def test_per_signal_timeouts_are_milliseconds() -> None:
+    cfg = OTLPConfig.from_env(
+        {
+            "OTEL_EXPORTER_OTLP_TIMEOUT": "10000",
+            "OTEL_EXPORTER_OTLP_METRICS_TIMEOUT": "2500",
+        }
+    )
+    assert cfg.timeout_for(SignalKind.METRICS) == 2.5
+    assert cfg.timeout_for(SignalKind.LOGS) == 10.0
+
+
+def test_per_signal_compression_is_read() -> None:
+    cfg = OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_LOGS_COMPRESSION": "gzip"})
+    assert cfg.compression_for(SignalKind.LOGS) is Compression.GZIP
+    assert cfg.compression_for(SignalKind.TRACES) is Compression.NONE
+
+
+def test_invalid_per_signal_timeout_is_rejected() -> None:
+    with pytest.raises(OTLPConfigError, match="timeout"):
+        OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_TRACES_TIMEOUT": "soon"})
+
+
+def test_invalid_per_signal_compression_is_rejected() -> None:
+    with pytest.raises(OTLPConfigError, match="compression"):
+        OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_TRACES_COMPRESSION": "brotli"})
+
+
+def test_empty_compression_variable_is_treated_as_unset() -> None:
+    # An empty environment variable is conventionally the same as an unset one
+    # (`export X="${MAYBE_UNSET}"` yields ""), and the spec defines the
+    # compression default as "no value explicitly specified".
+    assert (
+        OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_COMPRESSION": ""}).compression is Compression.NONE
+    )
+
+
+def test_general_timeout_of_zero_is_rejected() -> None:
+    with pytest.raises(OTLPConfigError, match="timeout"):
+        OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_TIMEOUT": "0"})
+
+
+@pytest.mark.parametrize("signal", ["TRACES", "METRICS", "LOGS"])
+@pytest.mark.parametrize(
+    "option", ["PROTOCOL", "INSECURE", "CERTIFICATE", "CLIENT_KEY", "CLIENT_CERTIFICATE"]
+)
+def test_unsupported_per_signal_variables_are_rejected(signal: str, option: str) -> None:
+    # One OTLPClient holds one encoder and one transport, so these cannot vary
+    # by signal. Ignoring them silently would send a signal in the wrong wire
+    # format or quietly drop a certificate.
+    name = f"OTEL_EXPORTER_OTLP_{signal}_{option}"
+    with pytest.raises(OTLPConfigError, match=name):
+        OTLPConfig.from_env({name: "x"})
+
+
+def test_supported_per_signal_variables_are_not_rejected() -> None:
+    cfg = OTLPConfig.from_env(
+        {
+            "OTEL_EXPORTER_OTLP_TRACES_HEADERS": "x-tenant=acme",
+            "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT": "2500",
+            "OTEL_EXPORTER_OTLP_TRACES_COMPRESSION": "gzip",
+            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "https://traces.example/v1/traces",
+        }
+    )
+    assert cfg.traces_headers == {"x-tenant": "acme"}
+    assert cfg.traces_timeout == 2.5
+
+
+def test_an_empty_unsupported_variable_is_ignored() -> None:
+    # An empty value is effectively unset, matching how endpoint overrides are
+    # treated, so it must not trip the rejection.
+    cfg = OTLPConfig.from_env({"OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE": ""})
+    assert cfg.certificate_file is None

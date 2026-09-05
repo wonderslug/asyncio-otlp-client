@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse, urlunparse
 
 from otlp_client.errors import OTLPConfigError
 from otlp_client.model.common import Resource
@@ -39,6 +39,18 @@ _DEFAULT_ENDPOINTS: Mapping[OTLPProtocol, str] = MappingProxyType(
     }
 )
 
+# Per-signal variants this client cannot honour: one OTLPClient holds one
+# encoder and one transport, so the protocol and the connection-level TLS
+# settings cannot vary by signal.
+_UNSUPPORTED_PER_SIGNAL = (
+    "PROTOCOL",
+    "INSECURE",
+    "CERTIFICATE",
+    "CLIENT_KEY",
+    "CLIENT_CERTIFICATE",
+)
+_SIGNAL_PREFIXES = ("TRACES", "METRICS", "LOGS")
+
 
 @dataclass(frozen=True, slots=True)
 class OTLPConfig:
@@ -55,6 +67,22 @@ class OTLPConfig:
     metrics_endpoint: str | None = None
     logs_endpoint: str | None = None
     traces_endpoint: str | None = None
+
+    # Per-signal overrides. A value here REPLACES the general one rather than
+    # merging with it, per the spec: each option is overridable by a signal
+    # specific option. None means "not configured"; an empty mapping is a real
+    # override meaning "send no headers for this signal".
+    metrics_headers: Mapping[str, str] | None = field(default=None, hash=False)
+    logs_headers: Mapping[str, str] | None = field(default=None, hash=False)
+    traces_headers: Mapping[str, str] | None = field(default=None, hash=False)
+
+    metrics_timeout: float | None = None
+    logs_timeout: float | None = None
+    traces_timeout: float | None = None
+
+    metrics_compression: Compression | None = None
+    logs_compression: Compression | None = None
+    traces_compression: Compression | None = None
 
     # `insecure` chooses whether TLS is used at all and only applies to gRPC
     # endpoints written without a scheme. `insecure_skip_verify` is a different
@@ -77,6 +105,13 @@ class OTLPConfig:
             raise OTLPConfigError("timeout must be greater than zero")
         if self.max_elapsed <= 0:
             raise OTLPConfigError("max_elapsed must be greater than zero")
+        for name, value in (
+            ("metrics_timeout", self.metrics_timeout),
+            ("logs_timeout", self.logs_timeout),
+            ("traces_timeout", self.traces_timeout),
+        ):
+            if value is not None and value <= 0:
+                raise OTLPConfigError(f"{name} must be greater than zero")
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> OTLPConfig:
@@ -86,6 +121,7 @@ class OTLPConfig:
         cannot silently change client behaviour.
         """
         src = os.environ if env is None else env
+        _reject_unsupported_per_signal(src)
 
         raw_protocol = src.get("OTEL_EXPORTER_OTLP_PROTOCOL", OTLPProtocol.HTTP_JSON.value)
         try:
@@ -93,17 +129,12 @@ class OTLPConfig:
         except ValueError as exc:
             raise OTLPConfigError(f"unknown protocol {raw_protocol!r}") from exc
 
-        raw_compression = src.get("OTEL_EXPORTER_OTLP_COMPRESSION", Compression.NONE.value)
-        try:
-            compression = Compression(raw_compression)
-        except ValueError as exc:
-            raise OTLPConfigError(f"unknown compression {raw_compression!r}") from exc
-
-        timeout_ms = src.get("OTEL_EXPORTER_OTLP_TIMEOUT")
-        try:
-            timeout = float(timeout_ms) / 1000.0 if timeout_ms else 10.0
-        except ValueError as exc:
-            raise OTLPConfigError(f"invalid timeout {timeout_ms!r}") from exc
+        base_compression = _parse_compression(
+            src.get("OTEL_EXPORTER_OTLP_COMPRESSION"), "OTEL_EXPORTER_OTLP_COMPRESSION"
+        )
+        base_timeout = _parse_timeout(
+            src.get("OTEL_EXPORTER_OTLP_TIMEOUT"), "OTEL_EXPORTER_OTLP_TIMEOUT"
+        )
 
         return cls(
             endpoint=src.get("OTEL_EXPORTER_OTLP_ENDPOINT", _DEFAULT_ENDPOINTS[protocol]),
@@ -112,11 +143,37 @@ class OTLPConfig:
             insecure=_parse_bool(
                 src.get("OTEL_EXPORTER_OTLP_INSECURE", ""), "OTEL_EXPORTER_OTLP_INSECURE"
             ),
-            timeout=timeout,
-            compression=compression,
+            timeout=10.0 if base_timeout is None else base_timeout,
+            compression=Compression.NONE if base_compression is None else base_compression,
             metrics_endpoint=src.get("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"),
             logs_endpoint=src.get("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"),
             traces_endpoint=src.get("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"),
+            metrics_headers=_signal_headers(src, "METRICS"),
+            logs_headers=_signal_headers(src, "LOGS"),
+            traces_headers=_signal_headers(src, "TRACES"),
+            metrics_timeout=_parse_timeout(
+                src.get("OTEL_EXPORTER_OTLP_METRICS_TIMEOUT"),
+                "OTEL_EXPORTER_OTLP_METRICS_TIMEOUT",
+            ),
+            logs_timeout=_parse_timeout(
+                src.get("OTEL_EXPORTER_OTLP_LOGS_TIMEOUT"), "OTEL_EXPORTER_OTLP_LOGS_TIMEOUT"
+            ),
+            traces_timeout=_parse_timeout(
+                src.get("OTEL_EXPORTER_OTLP_TRACES_TIMEOUT"),
+                "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT",
+            ),
+            metrics_compression=_parse_compression(
+                src.get("OTEL_EXPORTER_OTLP_METRICS_COMPRESSION"),
+                "OTEL_EXPORTER_OTLP_METRICS_COMPRESSION",
+            ),
+            logs_compression=_parse_compression(
+                src.get("OTEL_EXPORTER_OTLP_LOGS_COMPRESSION"),
+                "OTEL_EXPORTER_OTLP_LOGS_COMPRESSION",
+            ),
+            traces_compression=_parse_compression(
+                src.get("OTEL_EXPORTER_OTLP_TRACES_COMPRESSION"),
+                "OTEL_EXPORTER_OTLP_TRACES_COMPRESSION",
+            ),
             certificate_file=src.get("OTEL_EXPORTER_OTLP_CERTIFICATE"),
             client_certificate_file=src.get("OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE"),
             client_key_file=src.get("OTEL_EXPORTER_OTLP_CLIENT_KEY"),
@@ -125,8 +182,9 @@ class OTLPConfig:
     def endpoint_for(self, kind: SignalKind) -> str:
         """Resolve the URL for a signal.
 
-        A per-signal endpoint is used verbatim; the base endpoint gets the
-        signal path appended. This asymmetry is required by the OTLP spec.
+        A per-signal endpoint is used verbatim, except that one carrying no
+        path part gets the root path `/`; the base endpoint gets the signal
+        path appended. This asymmetry is required by the OTLP spec.
         """
         override = {
             SignalKind.METRICS: self.metrics_endpoint,
@@ -135,8 +193,50 @@ class OTLPConfig:
             SignalKind.PROFILES: None,
         }[kind]
         if override:
-            return override
+            # The spec requires a per-signal URL to be used as-is, with one
+            # exception: a URL carrying no path part must use the root path.
+            # Rebuild rather than concatenate, so the root path lands before
+            # any query or fragment instead of after it.
+            parsed = urlparse(override)
+            if parsed.path:
+                return override
+            return urlunparse(parsed._replace(path="/"))
         return self.endpoint.rstrip("/") + http_path(kind)
+
+    def headers_for(self, kind: SignalKind) -> Mapping[str, str]:
+        """Resolve the headers for a signal.
+
+        A per-signal value replaces the general one rather than merging with
+        it. An empty mapping is a valid override meaning "send none"; None
+        means "not configured, use the general value".
+        """
+        override = {
+            SignalKind.METRICS: self.metrics_headers,
+            SignalKind.LOGS: self.logs_headers,
+            SignalKind.TRACES: self.traces_headers,
+            SignalKind.PROFILES: None,
+        }[kind]
+        return self.headers if override is None else override
+
+    def timeout_for(self, kind: SignalKind) -> float:
+        """Resolve the timeout for a signal, in seconds."""
+        override = {
+            SignalKind.METRICS: self.metrics_timeout,
+            SignalKind.LOGS: self.logs_timeout,
+            SignalKind.TRACES: self.traces_timeout,
+            SignalKind.PROFILES: None,
+        }[kind]
+        return self.timeout if override is None else override
+
+    def compression_for(self, kind: SignalKind) -> Compression:
+        """Resolve the compression for a signal."""
+        override = {
+            SignalKind.METRICS: self.metrics_compression,
+            SignalKind.LOGS: self.logs_compression,
+            SignalKind.TRACES: self.traces_compression,
+            SignalKind.PROFILES: None,
+        }[kind]
+        return self.compression if override is None else override
 
 
 def _parse_bool(raw: str, name: str) -> bool:
@@ -154,6 +254,55 @@ def _parse_bool(raw: str, name: str) -> bool:
     if value not in ("false", ""):
         _LOGGER.warning("ignoring unrecognised %s value %r, falling back to false", name, raw)
     return False
+
+
+def _parse_timeout(raw: str | None, name: str) -> float | None:
+    """Parse a millisecond timeout variable into seconds, or None if unset."""
+    if not raw:
+        return None
+    try:
+        return float(raw) / 1000.0
+    except ValueError as exc:
+        raise OTLPConfigError(f"invalid timeout in {name}: {raw!r}") from exc
+
+
+def _parse_compression(raw: str | None, name: str) -> Compression | None:
+    """Parse a compression variable, or None if unset."""
+    if not raw:
+        return None
+    try:
+        return Compression(raw)
+    except ValueError as exc:
+        raise OTLPConfigError(f"unknown compression in {name}: {raw!r}") from exc
+
+
+def _signal_headers(src: Mapping[str, str], signal: str) -> Mapping[str, str] | None:
+    """Read one per-signal headers variable.
+
+    Absent gives None, meaning "use the general value". Present gives a
+    mapping that replaces it — including an empty one, which means "send no
+    headers for this signal".
+    """
+    raw = src.get(f"OTEL_EXPORTER_OTLP_{signal}_HEADERS")
+    return None if raw is None else _parse_headers(raw)
+
+
+def _reject_unsupported_per_signal(src: Mapping[str, str]) -> None:
+    """Refuse per-signal variables that cannot be honoured.
+
+    Failing loudly rather than ignoring them: silently dropping a per-signal
+    protocol would send that signal in the wrong wire format, and silently
+    dropping a per-signal certificate is a security surprise.
+    """
+    for signal in _SIGNAL_PREFIXES:
+        for option in _UNSUPPORTED_PER_SIGNAL:
+            name = f"OTEL_EXPORTER_OTLP_{signal}_{option}"
+            if src.get(name):
+                raise OTLPConfigError(
+                    f"{name} is not supported: one OTLPClient holds a single encoder and "
+                    f"transport, so this cannot vary per signal. Use separate OTLPClient "
+                    f"instances, one per signal, each with its own config."
+                )
 
 
 def _parse_headers(raw: str) -> Mapping[str, str]:
