@@ -11,8 +11,13 @@ grpc = ["opentelemetry-proto>=1.20", "grpcio>=1.63"]
 
 [dependency-groups]
 dev = [
-  "pytest>=8", "pytest-asyncio>=0.24", "hypothesis>=6",
-  "mypy>=1.11", "ruff>=0.6", "opentelemetry-proto>=1.20",
+  "pytest>=8",
+  "pytest-asyncio>=0.24",
+  "hypothesis>=6",
+  "mypy>=1.11",
+  "ruff>=0.6",
+  "opentelemetry-proto>=1.20",
+  "types-grpcio>=1.83.0.20260730",
 ]
 
 [build-system]
