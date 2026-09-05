@@ -378,7 +378,14 @@ otlp_client`, locking in the lazy import decision 9 depends on. This must be
 verified to hold before the guard is added; if it does not, the guard is
 dropped rather than unrelated modules restructured to satisfy it.
 
-Every existing test stays green.
+Every existing test stays green with one exception, which decision 7 forces:
+`test_per_signal_headers_replace_the_general_ones` in `test_transport_http.py`
+and its gRPC twin assert *config resolution* by observing the wire. Once the
+transport is handed its headers, resolution is no longer the transport's
+behaviour to prove. Both are rewritten to pass headers explicitly, asserting
+only that the transport sends what it was given; the resolution they covered is
+already asserted by the `headers_for` tests in `test_config.py`, and a new
+client-level test proves the client calls `headers_for`.
 
 ## Documentation
 
