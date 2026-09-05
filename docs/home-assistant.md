@@ -36,10 +36,13 @@ Two HA rules shape this code, and both are requirements, not suggestions:
    the flush task from a previous load.
 
 ```python
+import time
+
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, EventStateChangedData, HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from otlp_client import BatchProcessor, OTLPClient, OTLPConfig, Resource
+from homeassistant.helpers.event import async_track_state_change_event
+from otlp_client import BatchProcessor, OTLPClient, OTLPConfig, Resource, gauge
 
 type MyConfigEntry = ConfigEntry[BatchProcessor]
 
@@ -60,7 +63,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: MyConfigEntry) -> bool:
     await processor.__aenter__()
     entry.runtime_data = processor
 
-    entry.async_on_unload(lambda: hass.async_create_task(processor.__aexit__(None, None, None)))
+    def _handle(event: Event[EventStateChangedData]) -> None:
+        new_state = event.data["new_state"]
+        if new_state is None:
+            return
+        try:
+            value = float(new_state.state)
+        except ValueError:
+            return  # non-numeric states are not metrics
+        processor.submit_metrics(
+            [
+                gauge(
+                    "homeassistant.state",
+                    value,
+                    time_unix_nano=time.time_ns(),
+                    unit=new_state.attributes.get("unit_of_measurement", ""),
+                    attributes={
+                        "entity_id": new_state.entity_id,
+                        "domain": new_state.domain,
+                    },
+                )
+            ]
+        )
+
+    entry.async_on_unload(async_track_state_change_event(hass, ["sensor.living_room"], _handle))
+
+    async def _stop_processor() -> None:
+        await processor.__aexit__(None, None, None)
+
+    entry.async_on_unload(_stop_processor)
     return True
 ```
 
@@ -72,52 +103,22 @@ task — `async with BatchProcessor(...) as proc:` is equivalent for code that
 does not need to hold the processor across callback boundaries, but a config
 entry does, so it drives the same two methods directly instead.
 
+`_handle` and the final `entry.async_on_unload(_stop_processor)` are nested
+inside `async_setup_entry` on purpose: nesting is what puts both `processor`
+and `entry` in `_handle`'s closure, so there is nothing to look up through
+`hass.data` and nothing that can go stale across a reload. `_stop_processor`
+is a real `async def`, not a lambda wrapping `hass.async_create_task(...)` —
+`ConfigEntry.async_on_unload` accepts a callable that may itself return a
+coroutine to await, and an `async def` closure is awaited unambiguously either
+way, whereas a lambda that returns a `Task` depends on unload behavior this
+guide should not ask a reader to reason about.
+
 ## Feeding state changes as metrics
 
 `submit_metrics` never blocks and never raises, which is what makes it safe to
-call from a state-change listener. Register the listener inside
-`async_setup_entry` (continuing the function above) so `processor` is captured
-by closure — no lookup through `hass.data` needed:
-
-```python
-import time
-
-from homeassistant.core import Event, EventStateChangedData
-from homeassistant.helpers.event import async_track_state_change_event
-from otlp_client import gauge
-
-
-def _handle(event: Event[EventStateChangedData]) -> None:
-    new_state = event.data["new_state"]
-    if new_state is None:
-        return
-    try:
-        value = float(new_state.state)
-    except ValueError:
-        return  # non-numeric states are not metrics
-    processor.submit_metrics(
-        [
-            gauge(
-                "homeassistant.state",
-                value,
-                time_unix_nano=time.time_ns(),
-                unit=new_state.attributes.get("unit_of_measurement", ""),
-                attributes={
-                    "entity_id": new_state.entity_id,
-                    "domain": new_state.domain,
-                },
-            )
-        ]
-    )
-
-
-entry.async_on_unload(async_track_state_change_event(hass, ["sensor.living_room"], _handle))
-```
-
-`submit_metrics` returns `False` when a record was dropped (queue full) or the
-processor is already closed — safe to ignore in a listener that has nowhere to
-report failure, which is exactly why `submit_*` is built this way instead of
-raising.
+call from `_handle` above: a state-change listener has nowhere to handle an
+exception, and `submit_metrics` returns `False` (queue full, or the processor
+is already closed) rather than raising — safe for a listener to ignore.
 
 ## Surfacing client health
 
@@ -157,7 +158,8 @@ It is a transport-and-encoding client, not an SDK. There is no `Tracer` /
 `Meter` / `Logger` API to instrument HA code with, no metric aggregation, and
 no automatic instrumentation — you build `Metric`, `LogRecord`, and `Span`
 values yourself (or use the `gauge()` / `sum_()` / `log_record()` / `span()`
-helpers) and hand them to `submit_*` or `export_*`. Profiles are a defined seam
-(`SignalKind.PROFILES`) but calling `export_*` for that signal raises
-`NotImplementedError` — the OTLP profiles format is still in development
-upstream, so there is nothing to send yet.
+helpers) and hand them to `submit_*` or `export_*`. Profiles are a defined
+seam — `SignalKind.PROFILES` exists and carries its `/v1development/profiles`
+path — but no encoder implements it and no public method on `OTLPClient` or
+`BatchProcessor` accepts it yet; the OTLP profiles format is still in
+development upstream, so there is nothing to send.

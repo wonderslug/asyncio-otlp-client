@@ -98,10 +98,11 @@ retry, and batching. It does not provide `Tracer`/`Meter`/`Logger` APIs, does
 not aggregate metrics, and does not instrument anything — you construct data
 points and hand them over.
 
-The profiles signal is defined as a seam (`SignalKind.PROFILES` carries its
-`/v1development/profiles` path) but is not encoded yet; calling `export_*` for
-it raises `NotImplementedError`, matching its still-in-development status
-upstream.
+The profiles signal is defined as a seam — `SignalKind.PROFILES` exists and
+carries its `/v1development/profiles` path — but no encoder implements it and
+no public export method accepts it yet: there is no `export_profiles` on
+`OTLPClient`, and `submit_*`/`export_*` cover metrics, logs, and traces only.
+The signal remains in development upstream.
 
 ## Home Assistant
 
