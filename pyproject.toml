@@ -2,8 +2,34 @@
 name = "asyncio-otlp-client"
 version = "0.1.0"
 description = "Pure-asyncio OpenTelemetry OTLP client"
+readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE.md"]
+authors = [{ name = "Brian Towles", email = "brian@towles.com" }]
+keywords = ["opentelemetry", "otlp", "asyncio", "aiohttp", "telemetry", "client"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Framework :: AsyncIO",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Natural Language :: English",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Topic :: System :: Monitoring",
+  "Typing :: Typed",
+]
 dependencies = ["aiohttp>=3.9"]
+
+[project.urls]
+Homepage = "https://github.com/wonderslug/asyncio-otlp-client"
+Source = "https://github.com/wonderslug/asyncio-otlp-client"
+Issues = "https://github.com/wonderslug/asyncio-otlp-client/issues"
+Changelog = "https://github.com/wonderslug/asyncio-otlp-client/releases"
 
 [project.optional-dependencies]
 protobuf = ["opentelemetry-proto>=1.20"]
@@ -12,6 +38,7 @@ grpc = ["opentelemetry-proto>=1.20", "grpcio>=1.63"]
 [dependency-groups]
 dev = [
   "pytest>=8",
+  "pytest-cov>=5",
   "pytest-asyncio>=0.24",
   "hypothesis>=6",
   "mypy>=1.11",
@@ -19,6 +46,7 @@ dev = [
   "opentelemetry-proto>=1.20",
   "types-grpcio>=1.83.0.20260730",
   "orjson>=3.10",
+  "pre-commit>=4",
 ]
 
 [build-system]

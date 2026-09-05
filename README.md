@@ -1,5 +1,10 @@
 # asyncio-otlp-client
 
+[![CI](https://github.com/wonderslug/asyncio-otlp-client/actions/workflows/ci.yml/badge.svg)](https://github.com/wonderslug/asyncio-otlp-client/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/asyncio-otlp-client.svg)](https://pypi.org/project/asyncio-otlp-client/)
+[![Python versions](https://img.shields.io/pypi/pyversions/asyncio-otlp-client.svg)](https://pypi.org/project/asyncio-otlp-client/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
+
 A pure-asyncio OpenTelemetry OTLP client for Python. Exports metrics, logs, and
 traces over OTLP/HTTP with **no native dependencies** — the core install needs
 only `aiohttp`.
@@ -109,3 +114,12 @@ The signal remains in development upstream.
 See [docs/home-assistant.md](docs/home-assistant.md). The core install is pure
 Python and publishes a `py3-none-any` wheel, so it installs on every Home
 Assistant architecture with no wheel-builder involvement.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). `make dev` sets up the environment,
+`make lint` and `make test` are what CI runs.
+
+## License
+
+MIT — see [LICENSE.md](LICENSE.md).

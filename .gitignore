@@ -1,13 +1,56 @@
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
-.venv/
-venv/
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
 dist/
 build/
 *.egg-info/
+.eggs/
+
+# Unit test / coverage reports
 .pytest_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+cov.xml
+htmlcov/
+
+# Integration-test collector output (docker-compose.test.yml)
+out/
+
+# Type checkers / linters
 .mypy_cache/
 .ruff_cache/
-.coverage
-htmlcov/
-out/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# pyenv
+.python-version
+
+# OSX
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Visual Studio Code
+.vscode
+
+# IntelliJ Idea family of suites
+.idea
+*.iml
+
+# Claude Code
+.claude/
+
+# superpowers subagent-driven-development scratch workspace
+.superpowers/

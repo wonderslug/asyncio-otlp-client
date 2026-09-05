@@ -1,0 +1,54 @@
+---
+# .github/ is excluded wholesale (see `exclude:` at the bottom): GitHub workflow
+# files use `on:` as a key, which yamllint's truthy rule rejects, and they are
+# already validated by Actions itself.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: debug-statements
+      - id: check-docstring-first
+      - id: check-json
+        # devcontainer.json is JSONC: the devcontainer spec allows comments,
+        # and check-json uses the stdlib json parser, which does not.
+        exclude: '^\.devcontainer/devcontainer\.json$'
+      - id: check-toml
+      - id: check-yaml
+      - id: fix-byte-order-marker
+      - id: check-case-conflict
+      - id: check-ast
+      - id: detect-private-key
+      - id: forbid-new-submodules
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.6
+    hooks:
+      # Ruff is the whole lint/format stack here: it subsumes black, flake8,
+      # isort and pylint, so none of those are configured separately.
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.21.2
+    hooks:
+      - id: pyupgrade
+        args: [--py312-plus]
+  - repo: https://github.com/adrienverge/yamllint.git
+    rev: v1.38.0
+    hooks:
+      - id: yamllint
+  - repo: local
+    hooks:
+      # mypy runs through uv rather than pre-commit's isolated virtualenv:
+      # `strict = true` needs aiohttp, opentelemetry-proto, hypothesis and the
+      # grpcio stubs importable, and re-declaring all of them as
+      # additional_dependencies would just be uv.lock duplicated by hand.
+      - id: mypy
+        name: mypy (strict, via uv)
+        entry: uv run mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+exclude: '^.github/.*'

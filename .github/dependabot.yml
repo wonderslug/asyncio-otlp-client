@@ -1,0 +1,27 @@
+---
+version: 2
+updates:
+  # The project is uv-managed: this ecosystem updates pyproject.toml
+  # constraints and keeps uv.lock in step.
+  - package-ecosystem: uv
+    directory: "/"
+    schedule:
+      interval: daily
+      time: "06:00"
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: daily
+      time: "06:00"
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+  - package-ecosystem: devcontainers
+    directory: "/"
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies

@@ -1,0 +1,29 @@
+FROM mcr.microsoft.com/devcontainers/python:1-3.14-bookworm
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+RUN \
+    apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        git \
+        make \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# uv is the project's package manager; the devcontainer feature set has no
+# first-party uv feature, so install the standalone binary system-wide.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
+WORKDIR /workspaces
+
+# /workspaces/asyncio-otlp-client is later overlaid by a named volume (see
+# devcontainer.json). Docker seeds a fresh named volume's ownership from
+# whatever exists at that path in the image, so this directory must be
+# chowned to vscode here or onCreateCommand's git clone (run as vscode)
+# hits "Permission denied" against the root-owned mount point.
+RUN mkdir -p /workspaces/asyncio-otlp-client && chown vscode:vscode /workspaces/asyncio-otlp-client
+
+# Dependencies are not baked into the image: the named volume replaces
+# /workspaces at runtime, so postCreateCommand runs `make dev` after the clone.
+
+ENV SHELL=/bin/bash
