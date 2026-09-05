@@ -111,11 +111,17 @@ class GRPCTransport:
             grpc.StatusCode.DEADLINE_EXCEEDED,
             grpc.StatusCode.RESOURCE_EXHAUSTED,
         }
+        # gRPC has no HTTP status, but mapping the two auth codes onto their
+        # HTTP equivalents lets one predicate cover both transports.
+        auth_statuses = {
+            grpc.StatusCode.UNAUTHENTICATED: 401,
+            grpc.StatusCode.PERMISSION_DENIED: 403,
+        }
         code = exc.code()
         message = exc.details() or str(code)
         if code in retryable:
             return Retryable(message=message, retry_after=_pushback(exc))
-        return Permanent(message=message)
+        return Permanent(status=auth_statuses.get(code), message=message)
 
     async def send(
         self, kind: SignalKind, payload: bytes, headers: Mapping[str, str]

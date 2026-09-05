@@ -123,6 +123,28 @@ async def test_other_status_codes_are_permanent(
     await transport.aclose()
 
 
+@pytest.mark.parametrize(
+    ("code", "expected_status"),
+    [
+        (grpc.StatusCode.UNAUTHENTICATED, 401),
+        (grpc.StatusCode.PERMISSION_DENIED, 403),
+    ],
+)
+async def test_auth_failures_carry_the_matching_http_status(
+    grpc_server: ServerFactory, code: grpc.StatusCode, expected_status: int
+) -> None:
+    # The status field lets the client's one credential-rejection predicate
+    # serve both transports without a gRPC-shaped special case.
+    handler = EchoHandler(code=code)
+    target = await grpc_server(handler)
+    config = OTLPConfig(endpoint=f"http://{target}", protocol=OTLPProtocol.GRPC)
+    transport = await GRPCTransport.create(config, build_protobuf_encoder())
+    result = await transport.send(SignalKind.METRICS, b"x", {})
+    await transport.aclose()
+    assert isinstance(result, Permanent)
+    assert result.status == expected_status
+
+
 async def test_partial_success_response_is_decoded(grpc_server: ServerFactory) -> None:
     from opentelemetry.proto.collector.metrics.v1.metrics_service_pb2 import (
         ExportMetricsServiceResponse,
