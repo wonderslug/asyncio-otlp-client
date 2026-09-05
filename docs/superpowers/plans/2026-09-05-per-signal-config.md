@@ -598,7 +598,7 @@ from urllib.parse import unquote
 to:
 
 ```python
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote, urlparse, urlunparse
 ```
 
 - [ ] **Step 4: Apply the root path in `endpoint_for`**
@@ -609,7 +609,12 @@ Replace the `if override:` branch of `endpoint_for` with:
         if override:
             # The spec requires a per-signal URL to be used as-is, with one
             # exception: a URL carrying no path part must use the root path.
-            return override if urlparse(override).path else override + "/"
+            # Rebuild rather than concatenate, so the root path lands before
+            # any query or fragment instead of after it.
+            parsed = urlparse(override)
+            if parsed.path:
+                return override
+            return urlunparse(parsed._replace(path="/"))
 ```
 
 Leave the general-endpoint branch untouched — it already appends a signal path, so it can
