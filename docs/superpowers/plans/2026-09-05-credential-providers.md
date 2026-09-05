@@ -52,7 +52,17 @@ async def test_client_resolves_per_signal_headers_and_passes_them_to_the_transpo
     )
     transport = FakeTransport()
     client = OTLPClient(config, transport=transport, encoder=JSONEncoder())
-    await client.export_traces([span("s", trace_id=b"\x01" * 16, span_id=b"\x02" * 8)])
+    await client.export_traces(
+        [
+            span(
+                "s",
+                trace_id=b"\x01" * 16,
+                span_id=b"\x02" * 8,
+                start_time_unix_nano=1,
+                end_time_unix_nano=2,
+            )
+        ]
+    )
     await client.export_metrics([gauge("t", 1.0, time_unix_nano=1)])
     assert transport.sent[0][2] == {"x-tenant": "acme"}
     assert transport.sent[1][2] == {"api-key": "secret"}
