@@ -1,0 +1,248 @@
+"""Credentials resolved per request, rather than frozen into OTLPConfig.
+
+The OTLP specification defines no authentication concept, so nothing here is
+conformance work: a provider is consulted on every export attempt, which is
+what makes a rotating token possible without rebuilding the client.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import json
+import time
+from collections.abc import Awaitable, Callable, Mapping
+from enum import StrEnum
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from urllib.parse import quote_plus
+
+from otlp_client.errors import OTLPPermanentError, OTLPTransportError
+from otlp_client.signals import SignalKind
+
+if TYPE_CHECKING:
+    import aiohttp
+
+
+@runtime_checkable
+class CredentialProvider(Protocol):
+    """Supplies credential headers for one export attempt.
+
+    Both methods take the signal so a provider can hold a different credential
+    per signal. The shipped helpers ignore it.
+    """
+
+    async def headers(self, kind: SignalKind) -> Mapping[str, str]:
+        """Return the credential headers for this attempt.
+
+        Merged over the configured static headers, winning any key collision.
+        Awaited on every attempt, so an implementation that caches owns its own
+        expiry. Keys must be lowercase: gRPC metadata keys must be lowercase
+        (grpcio raises otherwise), and HTTP header names are case-insensitive,
+        so lowercase is safe for both transports.
+        """
+        ...
+
+    async def invalidate(self, kind: SignalKind) -> None:
+        """The collector rejected what `headers()` last returned.
+
+        Drop any cached credential so the next `headers()` call mints a fresh
+        one. A stateless provider implements this as `pass`.
+        """
+        ...
+
+
+class BearerToken:
+    """An `authorization: Bearer ...` header, static or fetched per attempt.
+
+    A `str` source is a token you already hold. A callable source is consulted
+    on every attempt and its result is never cached here -- the caching belongs
+    to whoever owns the token, and a cache this class did not agree to would be
+    exactly what makes a rotated token look stale.
+    """
+
+    def __init__(self, source: str | Callable[[], Awaitable[str]]) -> None:
+        self._source = source
+
+    async def headers(self, kind: SignalKind) -> Mapping[str, str]:
+        token = self._source if isinstance(self._source, str) else await self._source()
+        return {"authorization": f"Bearer {token}"}
+
+    async def invalidate(self, kind: SignalKind) -> None:
+        """No cache to drop: a callable source is re-consulted next call anyway."""
+
+
+class BasicAuth:
+    """An RFC 7617 `authorization: Basic ...` header.
+
+    Static, but it keeps the secret out of the config and environment surface,
+    where it would otherwise sit inside an OTEL_EXPORTER_OTLP_HEADERS string.
+    """
+
+    def __init__(self, username: str, password: str) -> None:
+        # RFC 7617: the raw "user:pass" is base64'd directly, no percent-
+        # encoding of either half -- deliberately different from
+        # OAuth2ClientCredentials._auth_header's RFC 6749 encoding below.
+        # Unifying the two would break whichever RFC the "unified" form drops.
+        raw = f"{username}:{password}".encode()
+        self._header = f"Basic {base64.b64encode(raw).decode('ascii')}"
+
+    async def headers(self, kind: SignalKind) -> Mapping[str, str]:
+        return {"authorization": self._header}
+
+    async def invalidate(self, kind: SignalKind) -> None:
+        """Nothing is cached; the credential cannot go stale."""
+
+
+class AuthStyle(StrEnum):
+    """How client credentials are presented, per RFC 6749 section 2.3.1."""
+
+    POST = "post"
+    BASIC = "basic"
+
+
+class OAuth2ClientCredentials:
+    """An OAuth2 client-credentials token, cached until it nears expiry.
+
+    Pass a `session` whenever one exists; Home Assistant integrations must pass
+    `async_get_clientsession(hass)` rather than letting this create one. A
+    session this provider creates is owned by it and released by `aclose()`.
+
+    The client never closes a provider -- one provider shared across several
+    OTLPClient instances is a first-class pattern -- so the caller owns the
+    lifetime of whatever it passes here.
+    """
+
+    def __init__(
+        self,
+        *,
+        token_url: str,
+        client_id: str,
+        client_secret: str,
+        scope: str | None = None,
+        extra_params: Mapping[str, str] | None = None,
+        auth_style: AuthStyle = AuthStyle.POST,
+        session: aiohttp.ClientSession | None = None,
+        expiry_skew: float = 30.0,
+        default_ttl: float = 300.0,
+        monotonic: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._token_url = token_url
+        self._client_id = client_id
+        self._client_secret = client_secret
+        self._scope = scope
+        self._extra_params = dict(extra_params or {})
+        self._auth_style = auth_style
+        self._session = session
+        self._owns_session = False
+        self._expiry_skew = expiry_skew
+        self._default_ttl = default_ttl
+        self._monotonic = monotonic
+        self._token: str | None = None
+        self._expires_at = 0.0
+        self._lock = asyncio.Lock()
+
+    async def headers(self, kind: SignalKind) -> Mapping[str, str]:
+        if self._usable():
+            return {"authorization": f"Bearer {self._token}"}
+        async with self._lock:
+            # Re-check inside the lock: a burst of concurrent exports (or of
+            # simultaneous 401s after an invalidate) collapses into one mint.
+            if not self._usable():
+                await self._refresh()
+        return {"authorization": f"Bearer {self._token}"}
+
+    def _usable(self) -> bool:
+        return self._token is not None and self._monotonic() < self._expires_at - self._expiry_skew
+
+    async def invalidate(self, kind: SignalKind) -> None:
+        self._token = None
+
+    async def aclose(self) -> None:
+        """Close the session only if this provider created it."""
+        if self._owns_session and self._session is not None:
+            await self._session.close()
+
+    def _form(self) -> dict[str, str]:
+        form = {"grant_type": "client_credentials", **self._extra_params}
+        if self._scope:
+            form["scope"] = self._scope
+        if self._auth_style is AuthStyle.POST:
+            form["client_id"] = self._client_id
+            form["client_secret"] = self._client_secret
+        return form
+
+    def _auth_header(self) -> dict[str, str]:
+        if self._auth_style is not AuthStyle.BASIC:
+            return {}
+        # RFC 6749 section 2.3.1: each half is form-urlencoded before the
+        # colon-join, so a secret containing ':' or non-ASCII survives intact.
+        raw = f"{quote_plus(self._client_id)}:{quote_plus(self._client_secret)}".encode()
+        return {"Authorization": f"Basic {base64.b64encode(raw).decode('ascii')}"}
+
+    async def _ensure_session(self) -> aiohttp.ClientSession:
+        import aiohttp
+
+        if self._session is None:
+            self._session = aiohttp.ClientSession()
+            self._owns_session = True
+        return self._session
+
+    async def _refresh(self) -> None:
+        import aiohttp
+
+        session = await self._ensure_session()
+        try:
+            async with session.post(
+                self._token_url, data=self._form(), headers=self._auth_header()
+            ) as response:
+                status = response.status
+                raw = await response.read()
+        except (aiohttp.ClientError, TimeoutError) as exc:
+            raise OTLPTransportError(
+                f"could not reach the token endpoint: {type(exc).__name__}: {exc}"
+            ) from exc
+
+        # Classify the status before parsing: a 5xx carrying an HTML error page
+        # from a proxy is a transient failure, not a malformed-response bug.
+        if status >= 500:
+            raise OTLPTransportError(f"token endpoint returned status {status}")
+
+        try:
+            body = json.loads(raw)
+        except ValueError as exc:
+            # Never echoed back: an upstream error page can carry anything.
+            raise OTLPPermanentError("token endpoint returned a non-JSON body") from exc
+
+        if status >= 400:
+            # RFC 6749 section 5.2: `error` and `error_description` only. The
+            # raw body never goes into the message -- it can carry the secret
+            # back at us.
+            detail = ""
+            if isinstance(body, dict):
+                error = str(body.get("error", "unknown_error"))
+                description = body.get("error_description")
+                detail = f"{error}: {description}" if description else error
+            raise OTLPPermanentError(f"token endpoint rejected the credentials ({detail})")
+        if not isinstance(body, dict) or not body.get("access_token"):
+            raise OTLPPermanentError("token endpoint returned no access_token")
+
+        token = str(body["access_token"])
+        expires_in = body.get("expires_in")
+        if expires_in is None:
+            ttl = self._default_ttl
+        else:
+            try:
+                ttl = float(expires_in)
+            except (TypeError, ValueError) as exc:
+                # Never echoed back, same reasoning as the non-JSON-body case
+                # above: an upstream can put anything in this field.
+                raise OTLPPermanentError("token endpoint returned a malformed expires_in") from exc
+        # A negative expires_in must not produce an expiry in the past: that
+        # would defeat the cache and re-hit the token endpoint on every export.
+        ttl = max(ttl, 0.0)
+
+        # Assigned only now that the TTL parsed cleanly: setting _token earlier
+        # and failing here would leave a token cached with _expires_at still at
+        # its old value, permanently un-refreshable and re-raising every call.
+        self._token = token
+        self._expires_at = self._monotonic() + ttl

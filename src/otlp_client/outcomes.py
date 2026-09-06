@@ -40,3 +40,13 @@ class Permanent:
 
 
 type ExportOutcome = Success | PartialSuccess | Retryable | Permanent
+
+
+def is_credential_rejection(outcome: ExportOutcome) -> bool:
+    """True when the collector refused the credentials rather than the payload.
+
+    HTTP reports this as 401/403 directly; the gRPC transport maps
+    UNAUTHENTICATED and PERMISSION_DENIED onto the same statuses so one
+    predicate serves both.
+    """
+    return isinstance(outcome, Permanent) and outcome.status in (401, 403)

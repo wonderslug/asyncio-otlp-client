@@ -6,6 +6,7 @@ import asyncio
 import gzip
 import ssl
 import time
+from collections.abc import Mapping
 
 import aiohttp
 
@@ -81,18 +82,20 @@ class HTTPTransport:
             return await asyncio.to_thread(gzip.compress, payload)
         return gzip.compress(payload)
 
-    async def send(self, kind: SignalKind, payload: bytes) -> ExportOutcome:
-        headers = {**self._config.headers_for(kind), "Content-Type": self._encoder.content_type}
+    async def send(
+        self, kind: SignalKind, payload: bytes, headers: Mapping[str, str]
+    ) -> ExportOutcome:
+        request_headers = {**headers, "Content-Type": self._encoder.content_type}
         body = payload
         if self._config.compression_for(kind) is Compression.GZIP:
             body = await self._compress(payload)
-            headers["Content-Encoding"] = "gzip"
+            request_headers["Content-Encoding"] = "gzip"
 
         try:
             async with self._session.post(
                 self._config.endpoint_for(kind),
                 data=body,
-                headers=headers,
+                headers=request_headers,
                 timeout=self._timeouts[kind],
                 ssl=self._ssl if self._ssl is not None else True,
             ) as response:

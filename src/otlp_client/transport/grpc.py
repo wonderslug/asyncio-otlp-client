@@ -7,6 +7,7 @@ core-only install.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlparse
 
@@ -110,13 +111,21 @@ class GRPCTransport:
             grpc.StatusCode.DEADLINE_EXCEEDED,
             grpc.StatusCode.RESOURCE_EXHAUSTED,
         }
+        # gRPC has no HTTP status, but mapping the two auth codes onto their
+        # HTTP equivalents lets one predicate cover both transports.
+        auth_statuses = {
+            grpc.StatusCode.UNAUTHENTICATED: 401,
+            grpc.StatusCode.PERMISSION_DENIED: 403,
+        }
         code = exc.code()
         message = exc.details() or str(code)
         if code in retryable:
             return Retryable(message=message, retry_after=_pushback(exc))
-        return Permanent(message=message)
+        return Permanent(status=auth_statuses.get(code), message=message)
 
-    async def send(self, kind: SignalKind, payload: bytes) -> ExportOutcome:
+    async def send(
+        self, kind: SignalKind, payload: bytes, headers: Mapping[str, str]
+    ) -> ExportOutcome:
         import grpc
         from grpc.aio import AioRpcError
 
@@ -125,7 +134,7 @@ class GRPCTransport:
             request_serializer=lambda value: value,
             response_deserializer=lambda value: value,
         )
-        metadata = tuple(self._config.headers_for(kind).items())
+        metadata = tuple(headers.items())
         compression = (
             grpc.Compression.Gzip
             if self._config.compression_for(kind) is Compression.GZIP

@@ -196,6 +196,67 @@ and those settings choose them or configure the connection itself. `from_env()`
 raises `OTLPConfigError` on the per-signal forms rather than ignoring them.
 Use one client per signal if you need them to differ.
 
+## Dynamic credentials
+
+Headers in `OTLPConfig` are fixed for the life of the client. When a credential
+rotates, pass a provider instead — it is awaited on every export attempt:
+
+```python
+from otlp_client import OAuth2ClientCredentials, OTLPClient, OTLPConfig
+
+credentials = OAuth2ClientCredentials(
+    token_url="https://auth.example.com/oauth2/token",
+    client_id="collector-writer",
+    client_secret=secret,
+    scope="otlp:write",
+    session=session,  # required under Home Assistant
+)
+client = await OTLPClient.create(config, session=session, credentials=credentials)
+```
+
+Three helpers ship with the library:
+
+| Helper | Sends | Notes |
+| --- | --- | --- |
+| `BearerToken(source)` | `authorization: Bearer …` | `source` is a token string, or an async callable consulted per attempt |
+| `BasicAuth(user, password)` | `authorization: Basic …` | RFC 7617, UTF-8 |
+| `OAuth2ClientCredentials(...)` | `authorization: Bearer …` | Client-credentials grant, cached until it nears expiry |
+
+Anything else implements the protocol directly:
+
+```python
+class VaultCredentials:
+    async def headers(self, kind: SignalKind) -> Mapping[str, str]:
+        return {"authorization": f"Bearer {await self.vault.read()}"}
+
+    async def invalidate(self, kind: SignalKind) -> None:
+        self.vault.clear()
+```
+
+**Provider headers merge over configured ones, and the provider wins a key
+collision.** This is the opposite of per-signal headers, which *replace* the
+general set. The two answer different questions: per-signal headers pick which
+static set applies, and the provider layers credentials on top of it. A static
+`x-tenant` alongside a rotating `authorization` therefore works as written.
+
+**A rejected credential earns one retry.** On a 401, 403, or gRPC
+`UNAUTHENTICATED`, the client calls `invalidate()` and re-sends once,
+immediately, outside the retry budget. A second rejection is permanent — a
+wrong secret fails fast rather than hammering the token endpoint.
+
+**You own the provider's lifetime.** `OTLPClient.aclose()` never closes a
+provider, because one provider shared across several clients (a first-class
+pattern when signals need different protocols or TLS settings) must outlive any
+one of them. Shut down in order: close clients and processors first, and the
+provider last. Using a provider after its `aclose()` raises a bare
+`RuntimeError: Session is closed` from aiohttp, so getting the order backwards
+breaks the very clients you closed it for. Call `await credentials.aclose()`
+yourself if the provider owns a session.
+
+The OTLP specification defines no authentication concept at all, so there is no
+`OTEL_EXPORTER_OTLP_*` variable for any of this and `OTLPConfig.from_env()`
+cannot build a provider. Construct it in code.
+
 ## Scope
 
 This is a client, not an SDK. It owns the data model, encoding, transport,

@@ -31,6 +31,7 @@ anywhere in the spec.
 | Insecure | `OTEL_EXPORTER_OTLP_INSECURE` | Supported (fixed 2026-09-05) |
 | Per-signal `HEADERS` / `TIMEOUT` / `COMPRESSION` | `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_*` | Supported (2026-09-05) |
 | Per-signal `PROTOCOL` / `INSECURE` / TLS settings | `OTEL_EXPORTER_OTLP_{TRACES,METRICS,LOGS}_*` | Rejected by design |
+| Dynamic credentials (beyond spec) | — | Supported (2026-09-05) |
 
 Headers reach both wire formats correctly: HTTP merges them into the request
 headers (`transport/http.py`), gRPC passes them as per-call metadata
@@ -93,7 +94,14 @@ Note the transports differ here: per-signal headers are meaningful over gRPC
 (metadata is per call), but per-signal certificates are not (one channel, one
 credential set). gRPC already rejects per-signal endpoints for the same reason.
 
-### 3. Headers are frozen at construction time
+### 3. Headers are frozen at construction time — RESOLVED 2026-09-05
+
+**Resolved 2026-09-05** by `docs/superpowers/specs/2026-09-05-credential-providers-design.md`.
+`OTLPClient.create(..., credentials=...)` takes a provider awaited per export
+attempt, with `BearerToken`, `BasicAuth` and `OAuth2ClientCredentials` helpers.
+Unlike every other item in this audit, this is beyond-spec work rather than
+conformance: the specification defines no authentication concept, so there is
+nothing here to conform to. The paragraphs below describe the original gap.
 
 `OTLPConfig` is a frozen dataclass; transports read `self._config.headers` at
 send time. A rotating bearer token cannot be refreshed without tearing down and
@@ -106,8 +114,6 @@ Collector routes around it with authenticator extensions (`bearertokenauth`,
 async-native library could offer something the spec does not: an awaitable
 credential provider consulted per request, with helpers for bearer, basic, and
 OAuth2 client-credentials with cached refresh.
-
-Deliberately not designed here. Worth its own brainstorm if we pursue it.
 
 ## Adjacent deviations noticed during the audit
 

@@ -10,6 +10,7 @@ from otlp_client.encoding.json import JSONEncoder
 from otlp_client.errors import OTLPConfigError, OTLPPermanentError, OTLPTransportError
 from otlp_client.model.common import InstrumentationScope, Resource
 from otlp_client.model.metrics import ResourceMetrics, ScopeMetrics, gauge
+from otlp_client.model.traces import span
 from otlp_client.outcomes import PartialSuccess, Permanent, Retryable, Success
 from otlp_client.retry import RetryPolicy
 from otlp_client.signals import SignalKind
@@ -29,7 +30,7 @@ async def test_export_metrics_wraps_metrics_in_config_resource() -> None:
     client = make_client(transport)
     result = await client.export_metrics([gauge("t", 21.5, time_unix_nano=1)])
     assert isinstance(result, Success)
-    (kind, payload) = transport.sent[0]
+    (kind, payload, _headers) = transport.sent[0]
     assert kind is SignalKind.METRICS
     doc = json.loads(payload)
     (rm,) = doc["resourceMetrics"]
@@ -137,3 +138,27 @@ def test_grpc_without_extra_names_the_grpc_extra(monkeypatch: pytest.MonkeyPatch
     config = OTLPConfig(endpoint="http://localhost:4318", protocol=OTLPProtocol.GRPC)
     with pytest.raises(OTLPConfigError, match=r"pip install 'asyncio-otlp-client\[grpc\]'"):
         _build_encoder(config)
+
+
+async def test_client_resolves_per_signal_headers_and_passes_them_to_the_transport() -> None:
+    config = OTLPConfig(
+        endpoint="http://localhost:4318",
+        headers={"api-key": "secret"},
+        traces_headers={"x-tenant": "acme"},
+    )
+    transport = FakeTransport()
+    client = OTLPClient(config, transport=transport, encoder=JSONEncoder())
+    await client.export_traces(
+        [
+            span(
+                "s",
+                trace_id=b"\x01" * 16,
+                span_id=b"\x02" * 8,
+                start_time_unix_nano=1,
+                end_time_unix_nano=2,
+            )
+        ]
+    )
+    await client.export_metrics([gauge("t", 1.0, time_unix_nano=1)])
+    assert transport.sent[0][2] == {"x-tenant": "acme"}
+    assert transport.sent[1][2] == {"api-key": "secret"}
